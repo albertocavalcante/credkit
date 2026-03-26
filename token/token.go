@@ -130,6 +130,37 @@ func (l *Ledger) Remove(provider, name string) error {
 	return l.saveLocked(kept)
 }
 
+// Cleanup removes expired tokens and tokens older than the given age from the ledger.
+func (l *Ledger) Cleanup(olderThan time.Duration) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	entries, err := l.loadLocked()
+	if err != nil {
+		return 0, err
+	}
+
+	cutoff := time.Now().Add(-olderThan)
+	var kept []Metadata
+	for _, e := range entries {
+		if e.IsExpired() {
+			continue
+		}
+		if !e.IssuedAt.IsZero() && e.IssuedAt.Before(cutoff) {
+			continue
+		}
+		kept = append(kept, e)
+	}
+
+	removed := len(entries) - len(kept)
+	if removed > 0 {
+		if err := l.saveLocked(kept); err != nil {
+			return 0, err
+		}
+	}
+	return removed, nil
+}
+
 func (l *Ledger) loadLocked() ([]Metadata, error) {
 	data, err := os.ReadFile(l.path)
 	if err != nil {

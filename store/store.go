@@ -2,7 +2,6 @@
 package store
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -62,5 +61,5 @@ func ReadSecure(path string) ([]byte, error) {
 // Exists reports whether path exists on disk.
 func Exists(path string) bool {
 	_, err := os.Stat(path)
-	return !errors.Is(err, os.ErrNotExist) && err == nil
+	return err == nil
 }

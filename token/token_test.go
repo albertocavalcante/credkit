@@ -201,6 +201,43 @@ func TestMetadata_ExpiresWithin(t *testing.T) {
 	}
 }
 
+func TestCleanup(t *testing.T) {
+	l := newLedger(t)
+
+	past := time.Now().Add(-time.Hour)
+	future := time.Now().Add(7 * 24 * time.Hour)
+	old := time.Now().Add(-60 * 24 * time.Hour)
+
+	l.Record(&token.Metadata{Provider: "a", Name: "expired", ExpiresAt: &past, IssuedAt: time.Now()})
+	l.Record(&token.Metadata{Provider: "a", Name: "old", IssuedAt: old})
+	l.Record(&token.Metadata{Provider: "a", Name: "current", ExpiresAt: &future, IssuedAt: time.Now()})
+	l.Record(&token.Metadata{Provider: "a", Name: "no-expiry", IssuedAt: time.Now()})
+
+	removed, err := l.Cleanup(30 * 24 * time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if removed != 2 {
+		t.Fatalf("expected 2 removed (expired + old), got %d", removed)
+	}
+
+	entries, _ := l.List("")
+	if len(entries) != 2 {
+		t.Fatalf("expected 2 remaining, got %d", len(entries))
+	}
+}
+
+func TestCleanup_Empty(t *testing.T) {
+	l := newLedger(t)
+	removed, err := l.Cleanup(24 * time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if removed != 0 {
+		t.Fatalf("expected 0, got %d", removed)
+	}
+}
+
 func TestRemove_EmptyLedger(t *testing.T) {
 	l := newLedger(t)
 	if err := l.Remove("a", "b"); err != nil {

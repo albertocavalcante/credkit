@@ -107,9 +107,12 @@ func (m *Manager) Save(name string, p *Profile) error {
 	if err := ValidateName(name); err != nil {
 		return err
 	}
-	p.Name = name
 
-	data, err := json.MarshalIndent(p, "", "  ")
+	// Copy to avoid mutating the caller's struct.
+	toSave := *p
+	toSave.Name = name
+
+	data, err := json.MarshalIndent(&toSave, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal profile: %w", err)
 	}
