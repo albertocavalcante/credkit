@@ -259,6 +259,43 @@ func TestRecord_ReadError(t *testing.T) {
 	}
 }
 
+func TestFindByID(t *testing.T) {
+	l := newLedger(t)
+	l.Record(&token.Metadata{Provider: "a", Name: "tok-1", ID: "id-1"})
+	l.Record(&token.Metadata{Provider: "a", Name: "tok-2", ID: "id-2"})
+	l.Record(&token.Metadata{Provider: "b", Name: "tok-3", ID: "id-3"})
+
+	// Find by ID.
+	m, err := l.FindByID("a", "id-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Name != "tok-1" {
+		t.Fatalf("name = %q", m.Name)
+	}
+
+	// Find by name (fallback).
+	m, err = l.FindByID("a", "tok-2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.ID != "id-2" {
+		t.Fatalf("id = %q", m.ID)
+	}
+
+	// Not found.
+	_, err = l.FindByID("a", "nonexistent")
+	if err == nil {
+		t.Fatal("expected error for nonexistent")
+	}
+
+	// Wrong provider.
+	_, err = l.FindByID("b", "id-1")
+	if err == nil {
+		t.Fatal("expected error for wrong provider")
+	}
+}
+
 func TestList_ReadError(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "tokens.json")

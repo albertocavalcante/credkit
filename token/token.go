@@ -161,6 +161,23 @@ func (l *Ledger) Cleanup(olderThan time.Duration) (int, error) {
 	return removed, nil
 }
 
+// FindByID returns the first token matching the provider and ID.
+func (l *Ledger) FindByID(provider, id string) (*Metadata, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	entries, err := l.loadLocked()
+	if err != nil {
+		return nil, err
+	}
+	for _, e := range entries {
+		if e.Provider == provider && (e.ID == id || e.Name == id) {
+			return &e, nil
+		}
+	}
+	return nil, fmt.Errorf("token not found: %s/%s", provider, id)
+}
+
 func (l *Ledger) loadLocked() ([]Metadata, error) {
 	data, err := os.ReadFile(l.path)
 	if err != nil {
