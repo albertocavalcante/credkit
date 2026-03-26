@@ -17,6 +17,7 @@ credkit provides the building blocks for multi-profile credential storage, resol
 | [`session`](session/) | TTL-based session caching for vault/provider keys |
 | [`token`](token/) | Token ledger for expiry monitoring and rotation planning |
 | [`audit`](audit/) | Append-only JSON-lines audit log for credential operations |
+| [`sts`](sts/) | STS Provider interface, atomic token rotation, health checks |
 
 ## Install
 
@@ -110,6 +111,34 @@ logger.Log(audit.Entry{
 
 // Query recent events
 entries, _ := logger.Query(time.Now().Add(-24*time.Hour), "sonarcloud")
+```
+
+### STS Provider & Rotation
+
+```go
+// Implement the Provider interface for your service.
+type MyProvider struct { /* auth injected at construction */ }
+
+func (p *MyProvider) Name() string { return "myservice" }
+func (p *MyProvider) Issue(ctx context.Context, req *sts.IssueRequest) (*sts.Token, error) { ... }
+func (p *MyProvider) Revoke(ctx context.Context, tokenID string) error { ... }
+func (p *MyProvider) List(ctx context.Context) ([]*sts.Token, error) { ... }
+func (p *MyProvider) Validate(ctx context.Context, tokenValue string) error { ... }
+
+// Atomic rotation: issue new → validate → revoke old
+result, _ := sts.Rotate(ctx, provider, "old-token-id", &sts.IssueRequest{
+    Name:  "rotated-token",
+    Scope: map[string]string{"project": "myapp"},
+    TTL:   24 * time.Hour,
+},
+    sts.WithTransition(5 * time.Minute),  // wait before revoking old
+    sts.WithLedger(ledger),               // record in token ledger
+    sts.WithAudit(auditLogger, "my-cli"), // log to audit trail
+)
+
+// Health check: validate all tracked tokens
+report, _ := sts.CheckHealth(ctx, provider, ledger, 7*24*time.Hour)
+total, valid, invalid, expired, expiringSoon := report.Counts()
 ```
 
 ## Design Principles
