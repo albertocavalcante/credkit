@@ -1,0 +1,77 @@
+# golangci-lint v2 configuration
+version = "2"
+
+[run]
+timeout = "5m"
+tests = true
+modules-download-mode = "readonly"
+
+[linters]
+default = "standard"
+enable = [
+  "errcheck",
+  "govet",
+  "staticcheck",
+  "unused",
+  "ineffassign",
+  "goconst",
+  "gocritic",
+  "misspell",
+  "unconvert",
+  "unparam",
+  "whitespace",
+  "copyloopvar",
+  "intrange",
+  "gosec",
+]
+disable = [
+  "wrapcheck",
+  "exhaustruct",
+  "varnamelen",
+]
+
+[linters.settings.errcheck]
+check-type-assertions = false
+check-blank = false
+
+[linters.settings.goconst]
+min-len = 3
+min-occurrences = 3
+
+[linters.settings.gocritic]
+enabled-tags = ["diagnostic", "performance", "style"]
+disabled-checks = ["hugeParam", "ifElseChain", "appendAssign", "rangeValCopy"]
+
+[linters.settings.govet]
+enable-all = true
+disable = ["fieldalignment"]
+
+[linters.settings.misspell]
+locale = "US"
+
+[linters.settings.staticcheck]
+checks = ["all", "-SA1019"]
+
+[linters.settings.gosec]
+excludes = ["G104"]
+
+[linters.exclusions]
+generated = "lax"
+
+[[linters.exclusions.rules]]
+path = "_test\\.go"
+linters = ["errcheck", "gocritic", "gosec", "govet", "misspell", "goconst", "unparam", "intrange"]
+
+[formatters]
+enable = ["gofmt", "goimports"]
+
+[formatters.settings.goimports]
+local-prefixes = ["github.com/albertocavalcante/credkit"]
+
+[output]
+sort-order = ["linter", "file"]
+show-stats = true
+
+[issues]
+max-issues-per-linter = 50
+max-same-issues = 3
