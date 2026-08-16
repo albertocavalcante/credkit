@@ -12,6 +12,7 @@ credkit provides the building blocks for multi-profile credential storage, resol
 | Package | Purpose |
 |---------|---------|
 | [`store`](store/) | Secure file I/O with XDG Base Directory compliance (0600/0700 permissions) |
+| [`secret`](secret/) | Opaque secret storage backed by the macOS Keychain or secure files |
 | [`resolve`](resolve/) | Configurable credential resolution chain (flag > env > profile > prompt) |
 | [`profile`](profile/) | Multi-profile CRUD with JSON storage and credential management |
 | [`session`](session/) | TTL-based session caching for vault/provider keys |

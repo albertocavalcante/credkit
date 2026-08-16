@@ -40,7 +40,7 @@ type CallbackResult struct {
 
 // CallbackServer is a single-shot HTTP server that captures one OAuth 2.0
 // authorization-code redirect. Wait blocks until a redirect arrives or ctx
-// is cancelled. The server stops accepting new requests after the first
+// is canceled. The server stops accepting new requests after the first
 // non-favicon callback is processed.
 type CallbackServer struct {
 	srv      *http.Server

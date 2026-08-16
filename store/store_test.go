@@ -72,6 +72,23 @@ func TestWriteSecure_Overwrite(t *testing.T) {
 	}
 }
 
+func TestWriteSecure_RepairsExistingPermissions(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(path, []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.WriteSecure(path, []byte("new")); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != store.FilePerm {
+		t.Fatalf("file perm = %o, want %o", got, store.FilePerm)
+	}
+}
+
 func TestReadSecure_Success(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "file")
 	want := []byte("hello")
@@ -118,6 +135,19 @@ func TestEnsureDir_Idempotent(t *testing.T) {
 	}
 	if err := store.EnsureDir(dir); err != nil {
 		t.Fatal("second call should succeed:", err)
+	}
+	if err := os.Chmod(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.EnsureDir(dir); err != nil {
+		t.Fatal("permission repair should succeed:", err)
+	}
+	info, err := os.Stat(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != store.DirPerm {
+		t.Fatalf("dir perm = %o, want %o", got, store.DirPerm)
 	}
 }
 
