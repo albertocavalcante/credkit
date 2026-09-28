@@ -11,13 +11,19 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
+	"unicode"
 
 	"github.com/albertocavalcante/credkit/store"
 )
 
 // DefaultTTL is the default session cache lifetime.
 const DefaultTTL = 4 * time.Hour
+
+// ErrInvalidProvider is returned when a provider cannot safely identify a
+// session file within the manager's directory.
+var ErrInvalidProvider = errors.New("invalid session provider")
 
 // Session represents a cached session key.
 type Session struct {
@@ -49,6 +55,9 @@ func NewManager(dir string, ttl time.Duration) *Manager {
 
 // Load reads a cached session for the given provider.
 func (m *Manager) Load(provider string) (*Session, error) {
+	if err := validateProvider(provider); err != nil {
+		return nil, err
+	}
 	data, err := os.ReadFile(m.path(provider))
 	if err != nil {
 		return nil, fmt.Errorf("load session: %w", err)
@@ -63,6 +72,9 @@ func (m *Manager) Load(provider string) (*Session, error) {
 
 // Save writes a session key for the given provider.
 func (m *Manager) Save(provider, key string) error {
+	if err := validateProvider(provider); err != nil {
+		return err
+	}
 	sess := Session{
 		Key:        key,
 		CreatedAt:  time.Now().UTC(),
@@ -80,6 +92,9 @@ func (m *Manager) Save(provider, key string) error {
 
 // Clear removes the cached session for the given provider.
 func (m *Manager) Clear(provider string) error {
+	if err := validateProvider(provider); err != nil {
+		return err
+	}
 	if err := os.Remove(m.path(provider)); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("clear session: %w", err)
 	}
@@ -89,6 +104,9 @@ func (m *Manager) Clear(provider string) error {
 // Resolve returns a session key using priority: explicit value > env vars > cached file.
 // It returns ("", nil) when no session is available (callers should prompt or error).
 func (m *Manager) Resolve(provider, explicit string, envVars ...string) (string, error) {
+	if err := validateProvider(provider); err != nil {
+		return "", err
+	}
 	if explicit != "" {
 		return explicit, nil
 	}
@@ -114,4 +132,12 @@ func (m *Manager) path(provider string) string {
 		return filepath.Join(m.dir, "session.json")
 	}
 	return filepath.Join(m.dir, "session-"+provider+".json")
+}
+
+func validateProvider(provider string) error {
+	if provider == "." || provider == ".." || strings.ContainsAny(provider, "/\\:*?\"<>|") ||
+		strings.TrimSpace(provider) != provider || strings.ContainsFunc(provider, unicode.IsControl) {
+		return fmt.Errorf("provider %q: %w", provider, ErrInvalidProvider)
+	}
+	return nil
 }

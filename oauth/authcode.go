@@ -12,6 +12,13 @@ import (
 	"time"
 )
 
+const (
+	paramCode         = "code"
+	paramClientID     = "client_id"
+	paramRedirectURI  = "redirect_uri"
+	paramRefreshToken = "refresh_token"
+)
+
 // Config holds the OAuth 2.0 client configuration for a single provider.
 // One Config corresponds to one (client, authorization-server) pair.
 type Config struct {
@@ -33,10 +40,10 @@ type Config struct {
 // caller verifies on callback to prevent CSRF.
 func (c Config) AuthCodeURL(state string, pkce PKCE) string {
 	q := url.Values{
-		"response_type": {"code"},
-		"client_id":     {c.ClientID},
-		"redirect_uri":  {c.RedirectURL},
-		"state":         {state},
+		"response_type":  {"code"},
+		paramClientID:    {c.ClientID},
+		paramRedirectURI: {c.RedirectURL},
+		"state":          {state},
 	}
 	if len(c.Scopes) > 0 {
 		q.Set("scope", strings.Join(c.Scopes, " "))
@@ -56,10 +63,10 @@ func (c Config) AuthCodeURL(state string, pkce PKCE) string {
 // verifier is the PKCE code verifier matching the challenge sent to AuthCodeURL.
 func (c Config) Exchange(ctx context.Context, code, verifier string) (*Token, error) {
 	form := url.Values{
-		"grant_type":   {"authorization_code"},
-		"code":         {code},
-		"redirect_uri": {c.RedirectURL},
-		"client_id":    {c.ClientID},
+		"grant_type":     {"authorization_code"},
+		paramCode:        {code},
+		paramRedirectURI: {c.RedirectURL},
+		paramClientID:    {c.ClientID},
 	}
 	if verifier != "" {
 		form.Set("code_verifier", verifier)
@@ -75,9 +82,9 @@ func (c Config) Exchange(ctx context.Context, code, verifier string) (*Token, er
 // callers must store it and discard the old one.
 func (c Config) Refresh(ctx context.Context, refreshToken string) (*Token, error) {
 	form := url.Values{
-		"grant_type":    {"refresh_token"},
-		"refresh_token": {refreshToken},
-		"client_id":     {c.ClientID},
+		"grant_type":      {"refresh_token"},
+		paramRefreshToken: {refreshToken},
+		paramClientID:     {c.ClientID},
 	}
 	if c.ClientSecret != "" {
 		form.Set("client_secret", c.ClientSecret)

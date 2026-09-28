@@ -53,7 +53,7 @@ func (t *Token) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &all); err != nil {
 		return fmt.Errorf("oauth: unmarshal token extras: %w", err)
 	}
-	for _, k := range []string{"access_token", "refresh_token", "token_type", "scope", "expires_in"} {
+	for _, k := range []string{"access_token", paramRefreshToken, "token_type", "scope", "expires_in"} {
 		delete(all, k)
 	}
 	t.AccessToken = wire.AccessToken

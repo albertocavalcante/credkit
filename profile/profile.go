@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/albertocavalcante/credkit/store"
 )
@@ -88,6 +89,9 @@ func (m *Manager) List() ([]Profile, error) {
 
 // Load reads a profile by name.
 func (m *Manager) Load(name string) (*Profile, error) {
+	if err := ValidateName(name); err != nil {
+		return nil, err
+	}
 	path := filepath.Join(m.profilesDir(), name+".json")
 	data, err := store.ReadSecure(path)
 	if err != nil {
@@ -123,6 +127,9 @@ func (m *Manager) Save(name string, p *Profile) error {
 
 // Delete removes a profile and its credentials.
 func (m *Manager) Delete(name string) error {
+	if err := ValidateName(name); err != nil {
+		return err
+	}
 	profilePath := filepath.Join(m.profilesDir(), name+".json")
 	credPath := filepath.Join(m.credentialsDir(), name)
 
@@ -147,32 +154,52 @@ func (m *Manager) Active() (string, error) {
 	if err != nil {
 		return DefaultName, nil
 	}
-	name := strings.TrimSpace(string(data))
+	// Remove the line ending written by SetActive, preserving name whitespace
+	// so invalid persisted names cannot silently select a different profile.
+	name := strings.TrimSuffix(string(data), "\n")
+	name = strings.TrimSuffix(name, "\r")
 	if name == "" {
 		return DefaultName, nil
+	}
+	if err := ValidateName(name); err != nil {
+		return "", fmt.Errorf("invalid active profile: %w", err)
 	}
 	return name, nil
 }
 
 // SetActive sets the active profile.
 func (m *Manager) SetActive(name string) error {
+	if name != "" {
+		if err := ValidateName(name); err != nil {
+			return err
+		}
+	}
 	return store.WriteSecure(m.activeProfilePath(), []byte(name+"\n"))
 }
 
 // Exists checks if a profile exists.
 func (m *Manager) Exists(name string) bool {
+	if ValidateName(name) != nil {
+		return false
+	}
 	path := filepath.Join(m.profilesDir(), name+".json")
 	return store.Exists(path)
 }
 
 // SaveCredential stores credential data for a profile.
 func (m *Manager) SaveCredential(profileName string, data []byte) error {
+	if err := ValidateName(profileName); err != nil {
+		return err
+	}
 	path := filepath.Join(m.credentialsDir(), profileName)
 	return store.WriteSecure(path, data)
 }
 
 // LoadCredential reads credential data for a profile.
 func (m *Manager) LoadCredential(profileName string) ([]byte, error) {
+	if err := ValidateName(profileName); err != nil {
+		return nil, err
+	}
 	path := filepath.Join(m.credentialsDir(), profileName)
 	return store.ReadSecure(path)
 }
@@ -200,6 +227,9 @@ func ValidateName(name string) error {
 	}
 	if strings.ContainsAny(name, "/\\:*?\"<>|") {
 		return errors.New("profile name contains invalid characters")
+	}
+	if strings.TrimSpace(name) != name || strings.ContainsFunc(name, unicode.IsControl) {
+		return errors.New("profile name contains surrounding whitespace or control characters")
 	}
 	c := name[0]
 	if !isAlphanumeric(c) {

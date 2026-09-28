@@ -17,6 +17,14 @@ import (
 	"github.com/albertocavalcante/credkit/store"
 )
 
+// MaxEntrySize is the maximum encoded JSON size of an audit entry, excluding
+// its line ending. Log and Query share this bound to keep records readable
+// while limiting the memory used to scan an individual record.
+const MaxEntrySize = 1024 * 1024
+
+// ErrEntryTooLarge is returned when an encoded audit entry exceeds MaxEntrySize.
+var ErrEntryTooLarge = errors.New("audit entry exceeds maximum size")
+
 // Entry represents a single audit log record.
 type Entry struct {
 	Timestamp time.Time `json:"ts"`
@@ -48,6 +56,9 @@ func (l *Logger) Log(e Entry) error {
 	data, err := json.Marshal(e)
 	if err != nil {
 		return fmt.Errorf("marshal audit entry: %w", err)
+	}
+	if len(data) > MaxEntrySize {
+		return ErrEntryTooLarge
 	}
 
 	l.mu.Lock()
@@ -84,8 +95,12 @@ func (l *Logger) Query(since time.Time, provider string) ([]Entry, error) {
 
 	var entries []Entry
 	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 64*1024), MaxEntrySize+2)
 	for scanner.Scan() {
 		line := scanner.Bytes()
+		if len(line) > MaxEntrySize {
+			return entries, ErrEntryTooLarge
+		}
 		if len(line) == 0 {
 			continue
 		}
@@ -105,6 +120,9 @@ func (l *Logger) Query(since time.Time, provider string) ([]Entry, error) {
 	}
 
 	if err := scanner.Err(); err != nil {
+		if errors.Is(err, bufio.ErrTooLong) {
+			return entries, fmt.Errorf("scan audit log: %w", ErrEntryTooLarge)
+		}
 		return entries, fmt.Errorf("scan audit log: %w", err)
 	}
 	return entries, nil

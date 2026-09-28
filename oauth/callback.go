@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"html"
 	"net"
 	"net/http"
 	"strings"
@@ -135,7 +136,7 @@ func (cb *CallbackServer) handler(opts CallbackOptions) http.HandlerFunc {
 			return
 		}
 
-		code := q.Get("code")
+		code := q.Get(paramCode)
 		if code == "" {
 			cb.deliver(callbackEvent{err: errors.New("oauth: callback missing 'code' parameter")})
 			writeBody(w, http.StatusBadRequest, opts.ErrorHTML, defaultErrorHTML("missing code"))
@@ -160,7 +161,9 @@ func writeBody(w http.ResponseWriter, status int, custom, fallback string) {
 	if body == "" {
 		body = fallback
 	}
-	_, _ = w.Write([]byte(body))
+	// Default query-derived error text is escaped by defaultErrorHTML. Custom
+	// HTML is trusted markup supplied by the application through CallbackOptions.
+	_, _ = w.Write([]byte(body)) // #nosec G705 -- trusted custom HTML; dynamic default error text is escaped.
 }
 
 const defaultSuccessHTML = `<!doctype html><html><body style="font-family:sans-serif;padding:2rem">
@@ -168,5 +171,5 @@ const defaultSuccessHTML = `<!doctype html><html><body style="font-family:sans-s
 
 func defaultErrorHTML(reason string) string {
 	return `<!doctype html><html><body style="font-family:sans-serif;padding:2rem">
-<h2>Login failed</h2><p>` + reason + `</p></body></html>`
+<h2>Login failed</h2><p>` + html.EscapeString(reason) + `</p></body></html>`
 }

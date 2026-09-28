@@ -112,6 +112,20 @@ func (l *Ledger) Expiring(within time.Duration) ([]Metadata, error) {
 
 // Remove deletes a token entry by provider and name.
 func (l *Ledger) Remove(provider, name string) error {
+	return l.remove(provider, func(e Metadata) bool { return e.Name == name })
+}
+
+// RemoveByID deletes token entries matching the provider and provider-native ID.
+// It does not match names; use Remove for name-based deletion. An empty ID is
+// rejected so entries without provider-native IDs cannot be removed accidentally.
+func (l *Ledger) RemoveByID(provider, id string) error {
+	if id == "" {
+		return errors.New("token ID cannot be empty")
+	}
+	return l.remove(provider, func(e Metadata) bool { return e.ID == id })
+}
+
+func (l *Ledger) remove(provider string, matches func(Metadata) bool) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
@@ -122,7 +136,7 @@ func (l *Ledger) Remove(provider, name string) error {
 
 	var kept []Metadata
 	for _, e := range entries {
-		if e.Provider == provider && e.Name == name {
+		if e.Provider == provider && matches(e) {
 			continue
 		}
 		kept = append(kept, e)

@@ -87,7 +87,7 @@ func Rotate(ctx context.Context, p Provider, oldID string, req *IssueRequest, op
 			Scope:     newToken.Scope,
 			Source:    cfg.source,
 		})
-		_ = cfg.ledger.Remove(providerName, oldID)
+		_ = cfg.ledger.RemoveByID(providerName, oldID)
 	}
 	logAudit(cfg, "rotate", providerName, newToken.Name, true, "")
 
