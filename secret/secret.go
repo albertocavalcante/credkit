@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -106,7 +107,8 @@ func (s FileStore) path(key Key) (string, error) {
 }
 
 // KeychainStore uses the macOS login keychain through /usr/bin/security.
-// Secrets are supplied over stdin and never placed in process arguments.
+// Secrets are supplied to `security -i` over stdin and never placed in process
+// arguments.
 type KeychainStore struct {
 	// ExecutablePath overrides /usr/bin/security. It is primarily a test seam.
 	ExecutablePath string
@@ -114,20 +116,31 @@ type KeychainStore struct {
 	CommandContext func(context.Context, string, ...string) *exec.Cmd
 }
 
+// encodedPrefix marks values stored by this package as base64. It keeps the
+// stored password shell- and parser-safe, and lets Get still read legacy
+// items written as plain text.
+const encodedPrefix = "b64:"
+
 // Put creates or updates a generic-password item.
+//
+// The secret is delivered to `security -i` on stdin, never in process
+// arguments. `security add-generic-password -w` with no value reads the
+// password from the controlling terminal (it prompts), not from stdin, so it
+// cannot be used non-interactively. Interactive mode also exits 0 when the
+// command fails, so Put reads the item back to confirm the write.
 func (s KeychainStore) Put(ctx context.Context, key Key, value []byte) error {
 	if err := validateKey(key); err != nil {
 		return err
 	}
-	if bytes.ContainsAny(value, "\r\n\x00") {
-		return errors.New("keychain secret cannot contain a newline or NUL")
-	}
-	input := make([]byte, len(value)+1)
-	copy(input, value)
-	input[len(value)] = '\n'
-	_, err := s.run(ctx, input, "add-generic-password", "-a", key.Account, "-s", key.Service, "-U", "-w")
-	if err != nil {
+	encoded := encodedPrefix + base64.StdEncoding.EncodeToString(value)
+	script := "add-generic-password -a " + quoteArg(key.Account) +
+		" -s " + quoteArg(key.Service) + " -U -w " + encoded + "\n"
+	if _, err := s.run(ctx, []byte(script), "-i"); err != nil {
 		return fmt.Errorf("put keychain secret: %w", err)
+	}
+	got, err := s.Get(ctx, key)
+	if err != nil || !bytes.Equal(got, value) {
+		return errors.New("put keychain secret: write could not be verified")
 	}
 	return nil
 }
@@ -145,6 +158,13 @@ func (s KeychainStore) Get(ctx context.Context, key Key) ([]byte, error) {
 		return nil, fmt.Errorf("get keychain secret: %w", err)
 	}
 	value = bytes.TrimSuffix(value, []byte{'\n'})
+	if rest, ok := bytes.CutPrefix(value, []byte(encodedPrefix)); ok {
+		decoded, err := base64.StdEncoding.DecodeString(string(rest))
+		if err != nil {
+			return nil, fmt.Errorf("get keychain secret: stored value is corrupt: %w", err)
+		}
+		return decoded, nil
+	}
 	return value, nil
 }
 
@@ -185,6 +205,13 @@ func (s KeychainStore) run(ctx context.Context, input []byte, args ...string) ([
 		return nil, err
 	}
 	return stdout.Bytes(), nil
+}
+
+// quoteArg double-quotes a value for the `security -i` command parser.
+func quoteArg(v string) string {
+	v = strings.ReplaceAll(v, `\`, `\\`)
+	v = strings.ReplaceAll(v, `"`, `\"`)
+	return `"` + v + `"`
 }
 
 func validateKey(key Key) error {
