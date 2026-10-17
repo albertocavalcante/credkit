@@ -1,5 +1,7 @@
 # credkit
 
+The name **credkit** is provisional; the current module path is unchanged.
+
 [![CI](https://github.com/albertocavalcante/credkit/actions/workflows/ci.yml/badge.svg)](https://github.com/albertocavalcante/credkit/actions/workflows/ci.yml)
 [![Go](https://img.shields.io/badge/go-1.26-00ADD8?logo=go&logoColor=white)](https://go.dev)
 
@@ -18,7 +20,8 @@ credkit provides the building blocks for multi-profile credential storage, resol
 | [`session`](session/) | TTL-based session caching for vault/provider keys |
 | [`token`](token/) | Token ledger for expiry monitoring and rotation planning |
 | [`audit`](audit/) | Append-only JSON-lines audit log for credential operations |
-| [`sts`](sts/) | STS Provider interface, atomic token rotation, health checks |
+| [`oauth`](oauth/) | OAuth authorization-code, PKCE, callback, and refresh primitives |
+| [`sts`](sts/) | STS Provider interface, recoverable token rotation, health checks |
 
 ## Install
 
@@ -126,7 +129,7 @@ func (p *MyProvider) Revoke(ctx context.Context, tokenID string) error { ... }
 func (p *MyProvider) List(ctx context.Context) ([]*sts.Token, error) { ... }
 func (p *MyProvider) Validate(ctx context.Context, tokenValue string) error { ... }
 
-// Atomic rotation: issue new → validate → revoke old
+// Recoverable rotation: issue new → validate → record → revoke old
 result, _ := sts.Rotate(ctx, provider, "old-token-id", &sts.IssueRequest{
     Name:  "rotated-token",
     Scope: map[string]string{"project": "myapp"},
@@ -137,7 +140,7 @@ result, _ := sts.Rotate(ctx, provider, "old-token-id", &sts.IssueRequest{
     sts.WithAudit(auditLogger, "my-cli"), // log to audit trail
 )
 
-// Health check: validate all tracked tokens
+// Health metadata: classify expiry; unknown tokens have not been validated
 report, _ := sts.CheckHealth(ctx, provider, ledger, 7*24*time.Hour)
 total, valid, invalid, expired, expiringSoon := report.Counts()
 ```
@@ -153,3 +156,48 @@ total, valid, invalid, expired, expiringSoon := report.Counts()
 ## License
 
 MIT
+
+OAuth token requests refuse redirects and bound decompressed responses to 1 MiB.
+Successful responses require a nonempty access token. Public token JSON decoding
+replaces prior derived fields and rejects expiry arithmetic overflow.
+
+Use `AuthCodeURLChecked` to receive invalid-configuration errors. Configure
+`CallbackOptions.ExpectedState` to reject unrelated callbacks before consuming
+the pending login; error callbacks preserve state too. Without that option,
+the application must verify state on successful and error redirects.
+
+`sts.Rotate` returns partial progress after issuance even when later work fails.
+Inspect the returned replacement and progress flags before retrying; rollback,
+ledger and audit failures are reported. A configured ledger records the validated
+replacement before old-token revocation. Cleanup after failed validation uses a
+fresh context with a five-second timeout. These remote and local steps are not
+an atomic transaction.
+
+`sts.CheckHealth` reports ledger metadata rather than provider validation.
+Tokens without an expiry warning are in `report.Unknown`, not `report.Valid`.
+`Counts` retains its five return values; its total includes Unknown entries,
+whose count is available as `len(report.Unknown)`.
+
+Profile, session and file-secret managers treat their configured directory as
+the trusted storage root, including an intentional symlink at that root. Managed
+descendant directories and files must not be symlinks. Rooted IO uses `os.Root`
+and owner-only permissions; read/remove paths preserve owner read-only intent.
+The absolute-path store helpers trust their immediate parent. Call the `*At`
+functions with an explicit application root to constrain descendant traversal.
+Audit appends reject symlinks/nonregular files and repair overly broad file modes.
+
+`token.Ledger.FindByID` now matches provider-native IDs exactly and rejects empty
+IDs. Use `FindByName` for the former display-name fallback. This prevents a
+name collision from selecting the wrong token.
+
+Profile and session resolution treat only missing files as absent; failed reads
+and corrupt cache contents now return errors. Session files include precise
+`expires_at` timestamps while old `ttl_seconds` files remain readable. Positive
+fractional TTLs retain their precision; negative TTLs expire immediately.
+
+Keychain writes now mark base64 encoding in the item's kind metadata. An
+unmarked legacy value beginning with `b64:` returns `secret.ErrAmbiguousEncoding`
+by default, because its bytes could be either literal or encoded. For migration,
+set `KeychainStore.LegacyEncoding` to `secret.LegacyPlain` or `secret.LegacyBase64`
+according to the known old format, read the value, then save it with `Put`. New
+marked entries decode consistently regardless of that migration policy.

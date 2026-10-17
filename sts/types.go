@@ -22,15 +22,22 @@ type Token struct {
 	ExpiresAt *time.Time        // When the token expires (nil = never).
 }
 
-// RotateResult holds the outcome of an atomic rotation.
+// RotateResult holds observed progress, including recovery state on failure.
 type RotateResult struct {
-	Old *Token // The revoked token (Value is empty).
-	New *Token // The newly issued token.
+	Old              *Token // The old token identifier (Value is empty); see OldRevoked.
+	New              *Token // The newly issued token, returned even on later failures.
+	NewValidated     bool
+	NewRevoked       bool
+	OldRevoked       bool
+	LedgerRecorded   bool
+	OldLedgerRemoved bool
+	AuditLogged      bool
 }
 
 // HealthReport summarizes the validation state of tracked tokens.
 type HealthReport struct {
 	Provider     string        // Provider name.
+	Unknown      []TokenStatus // Metadata-only entries with no observed validity.
 	Valid        []TokenStatus // Tokens that validated successfully.
 	Invalid      []TokenStatus // Tokens that failed validation.
 	Expired      []TokenStatus // Tokens past their ExpiresAt.
@@ -45,11 +52,12 @@ type TokenStatus struct {
 }
 
 // Counts returns total, valid, invalid, expired, expiring-soon counts.
+// Total also includes Unknown; use len(r.Unknown) for that separate count.
 func (r *HealthReport) Counts() (total, valid, invalid, expired, expiringSoon int) {
 	valid = len(r.Valid)
 	invalid = len(r.Invalid)
 	expired = len(r.Expired)
 	expiringSoon = len(r.ExpiringSoon)
-	total = valid + invalid + expired + expiringSoon
+	total = valid + invalid + expired + expiringSoon + len(r.Unknown)
 	return
 }

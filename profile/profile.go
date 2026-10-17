@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -50,17 +49,9 @@ func NewManagerWithDir(dir string) *Manager {
 	return &Manager{configDir: dir}
 }
 
-func (m *Manager) profilesDir() string    { return filepath.Join(m.configDir, "profiles") }
-func (m *Manager) credentialsDir() string { return filepath.Join(m.configDir, "credentials") }
-
-func (m *Manager) activeProfilePath() string {
-	return filepath.Join(m.configDir, "active-profile")
-}
-
 // List returns all profiles sorted by name.
 func (m *Manager) List() ([]Profile, error) {
-	dir := m.profilesDir()
-	entries, err := os.ReadDir(dir)
+	entries, err := store.ReadDirSecureAt(m.configDir, "profiles")
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil, nil
@@ -92,10 +83,10 @@ func (m *Manager) Load(name string) (*Profile, error) {
 	if err := ValidateName(name); err != nil {
 		return nil, err
 	}
-	path := filepath.Join(m.profilesDir(), name+".json")
-	data, err := store.ReadSecure(path)
+	path := filepath.Join("profiles", name+".json")
+	data, err := store.ReadSecureAt(m.configDir, path)
 	if err != nil {
-		return nil, fmt.Errorf("profile not found: %s", name)
+		return nil, fmt.Errorf("load profile %s: %w", name, err)
 	}
 
 	var p Profile
@@ -121,8 +112,8 @@ func (m *Manager) Save(name string, p *Profile) error {
 		return fmt.Errorf("marshal profile: %w", err)
 	}
 
-	path := filepath.Join(m.profilesDir(), name+".json")
-	return store.WriteSecure(path, append(data, '\n'))
+	path := filepath.Join("profiles", name+".json")
+	return store.WriteSecureAt(m.configDir, path, append(data, '\n'))
 }
 
 // Delete removes a profile and its credentials.
@@ -130,19 +121,24 @@ func (m *Manager) Delete(name string) error {
 	if err := ValidateName(name); err != nil {
 		return err
 	}
-	profilePath := filepath.Join(m.profilesDir(), name+".json")
-	credPath := filepath.Join(m.credentialsDir(), name)
+	active, err := m.Active()
+	if err != nil {
+		return fmt.Errorf("read active profile before deletion: %w", err)
+	}
+	profilePath := filepath.Join("profiles", name+".json")
+	credPath := filepath.Join("credentials", name)
 
-	if err := os.Remove(profilePath); err != nil && !errors.Is(err, fs.ErrNotExist) {
+	if err := store.RemoveSecureAt(m.configDir, profilePath); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("remove profile: %w", err)
 	}
-	if err := os.Remove(credPath); err != nil && !errors.Is(err, fs.ErrNotExist) {
+	if err := store.RemoveSecureAt(m.configDir, credPath); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("remove credentials: %w", err)
 	}
 
-	active, _ := m.Active()
 	if active == name {
-		_ = m.SetActive("")
+		if err := m.SetActive(""); err != nil {
+			return fmt.Errorf("clear active profile: %w", err)
+		}
 	}
 	return nil
 }
@@ -150,9 +146,12 @@ func (m *Manager) Delete(name string) error {
 // Active returns the currently active profile name.
 // Returns DefaultName if no active profile is set.
 func (m *Manager) Active() (string, error) {
-	data, err := os.ReadFile(m.activeProfilePath())
-	if err != nil {
+	data, err := store.ReadSecureAt(m.configDir, "active-profile")
+	if errors.Is(err, fs.ErrNotExist) {
 		return DefaultName, nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("read active profile: %w", err)
 	}
 	// Remove the line ending written by SetActive, preserving name whitespace
 	// so invalid persisted names cannot silently select a different profile.
@@ -174,7 +173,7 @@ func (m *Manager) SetActive(name string) error {
 			return err
 		}
 	}
-	return store.WriteSecure(m.activeProfilePath(), []byte(name+"\n"))
+	return store.WriteSecureAt(m.configDir, "active-profile", []byte(name+"\n"))
 }
 
 // Exists checks if a profile exists.
@@ -182,8 +181,8 @@ func (m *Manager) Exists(name string) bool {
 	if ValidateName(name) != nil {
 		return false
 	}
-	path := filepath.Join(m.profilesDir(), name+".json")
-	return store.Exists(path)
+	path := filepath.Join("profiles", name+".json")
+	return store.ExistsSecureAt(m.configDir, path)
 }
 
 // SaveCredential stores credential data for a profile.
@@ -191,8 +190,8 @@ func (m *Manager) SaveCredential(profileName string, data []byte) error {
 	if err := ValidateName(profileName); err != nil {
 		return err
 	}
-	path := filepath.Join(m.credentialsDir(), profileName)
-	return store.WriteSecure(path, data)
+	path := filepath.Join("credentials", profileName)
+	return store.WriteSecureAt(m.configDir, path, data)
 }
 
 // LoadCredential reads credential data for a profile.
@@ -200,8 +199,8 @@ func (m *Manager) LoadCredential(profileName string) ([]byte, error) {
 	if err := ValidateName(profileName); err != nil {
 		return nil, err
 	}
-	path := filepath.Join(m.credentialsDir(), profileName)
-	return store.ReadSecure(path)
+	path := filepath.Join("credentials", profileName)
+	return store.ReadSecureAt(m.configDir, path)
 }
 
 // UpdateLastUsed updates the last_used timestamp for a profile.

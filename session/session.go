@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -27,16 +28,23 @@ var ErrInvalidProvider = errors.New("invalid session provider")
 
 // Session represents a cached session key.
 type Session struct {
-	Key        string    `json:"key"`
-	CreatedAt  time.Time `json:"created_at"`
-	TTLSeconds int       `json:"ttl_seconds"`
-	Provider   string    `json:"provider,omitempty"`
+	ExpiresAt  *time.Time `json:"expires_at,omitempty"` // Precise expiry; nil for legacy caches.
+	Key        string     `json:"key"`
+	CreatedAt  time.Time  `json:"created_at"`
+	TTLSeconds int        `json:"ttl_seconds"`
+	Provider   string     `json:"provider,omitempty"`
 }
 
 // IsExpired reports whether the session has exceeded its TTL.
 func (s *Session) IsExpired() bool {
+	if s.ExpiresAt != nil {
+		return !time.Now().Before(*s.ExpiresAt)
+	}
+	if s.TTLSeconds < 0 || int64(s.TTLSeconds) > math.MaxInt64/int64(time.Second) {
+		return true
+	}
 	ttl := time.Duration(s.TTLSeconds) * time.Second
-	return time.Now().After(s.CreatedAt.Add(ttl))
+	return !time.Now().Before(s.CreatedAt.Add(ttl))
 }
 
 // Manager handles loading, saving, and clearing session files.
@@ -45,7 +53,8 @@ type Manager struct {
 	ttl time.Duration
 }
 
-// NewManager creates a session manager rooted at the given directory.
+// NewManager creates a session manager rooted at the given directory. Zero
+// uses DefaultTTL; a negative TTL creates immediately expired sessions.
 func NewManager(dir string, ttl time.Duration) *Manager {
 	if ttl == 0 {
 		ttl = DefaultTTL
@@ -58,7 +67,7 @@ func (m *Manager) Load(provider string) (*Session, error) {
 	if err := validateProvider(provider); err != nil {
 		return nil, err
 	}
-	data, err := os.ReadFile(m.path(provider))
+	data, err := store.ReadSecureAt(m.dir, filepath.Base(m.path(provider)))
 	if err != nil {
 		return nil, fmt.Errorf("load session: %w", err)
 	}
@@ -75,10 +84,13 @@ func (m *Manager) Save(provider, key string) error {
 	if err := validateProvider(provider); err != nil {
 		return err
 	}
+	now := time.Now().UTC()
+	expires := now.Add(m.ttl)
 	sess := Session{
+		ExpiresAt:  &expires,
 		Key:        key,
-		CreatedAt:  time.Now().UTC(),
-		TTLSeconds: int(m.ttl.Seconds()),
+		CreatedAt:  now,
+		TTLSeconds: int(m.ttl / time.Second),
 		Provider:   provider,
 	}
 
@@ -87,7 +99,7 @@ func (m *Manager) Save(provider, key string) error {
 		return fmt.Errorf("marshal session: %w", err)
 	}
 
-	return store.WriteSecure(m.path(provider), data)
+	return store.WriteSecureAt(m.dir, filepath.Base(m.path(provider)), data)
 }
 
 // Clear removes the cached session for the given provider.
@@ -95,7 +107,7 @@ func (m *Manager) Clear(provider string) error {
 	if err := validateProvider(provider); err != nil {
 		return err
 	}
-	if err := os.Remove(m.path(provider)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+	if err := store.RemoveSecureAt(m.dir, filepath.Base(m.path(provider))); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("clear session: %w", err)
 	}
 	return nil
@@ -118,8 +130,11 @@ func (m *Manager) Resolve(provider, explicit string, envVars ...string) (string,
 	}
 
 	sess, err := m.Load(provider)
+	if errors.Is(err, fs.ErrNotExist) {
+		return "", nil
+	}
 	if err != nil {
-		return "", nil //nolint:nilerr // missing cache is not an error
+		return "", err
 	}
 	if sess.IsExpired() {
 		return "", nil

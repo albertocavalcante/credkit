@@ -14,7 +14,7 @@ credkit (`github.com/albertocavalcante/credkit`) is a shared Go library of crede
 | `session` | TTL-based session caching for vault/provider keys |
 | `token` | Token ledger for expiry monitoring and rotation planning |
 | `audit` | Append-only JSON-lines audit log for credential operations |
-| `sts` | STS Provider interface, atomic token rotation, health checks |
+| `sts` | STS Provider interface, recoverable token rotation, health checks |
 
 ## Conventions
 

@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"path/filepath"
 	"sync"
 	"time"
 
@@ -64,11 +63,7 @@ func (l *Logger) Log(e Entry) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	if dirErr := store.EnsureDir(filepath.Dir(l.path)); dirErr != nil {
-		return dirErr
-	}
-
-	f, err := os.OpenFile(l.path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, store.FilePerm) //nolint:gosec // path from Logger, not user input
+	f, err := store.OpenAppendSecure(l.path)
 	if err != nil {
 		return fmt.Errorf("open audit log: %w", err)
 	}

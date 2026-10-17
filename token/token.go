@@ -12,7 +12,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"os"
 	"sync"
 	"time"
 
@@ -177,23 +176,38 @@ func (l *Ledger) Cleanup(olderThan time.Duration) (int, error) {
 
 // FindByID returns the first token matching the provider and ID.
 func (l *Ledger) FindByID(provider, id string) (*Metadata, error) {
+	if id == "" {
+		return nil, errors.New("token ID cannot be empty")
+	}
+	return l.find(provider, id, func(e Metadata) bool { return e.ID == id })
+}
+
+// FindByName returns the first token matching a provider and display name.
+// Names and provider-native IDs are intentionally separate namespaces.
+func (l *Ledger) FindByName(provider, name string) (*Metadata, error) {
+	if name == "" {
+		return nil, errors.New("token name cannot be empty")
+	}
+	return l.find(provider, name, func(e Metadata) bool { return e.Name == name })
+}
+
+func (l *Ledger) find(provider, identity string, matches func(Metadata) bool) (*Metadata, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-
 	entries, err := l.loadLocked()
 	if err != nil {
 		return nil, err
 	}
 	for _, e := range entries {
-		if e.Provider == provider && (e.ID == id || e.Name == id) {
+		if e.Provider == provider && matches(e) {
 			return &e, nil
 		}
 	}
-	return nil, fmt.Errorf("token not found: %s/%s", provider, id)
+	return nil, fmt.Errorf("token not found: %s/%s", provider, identity)
 }
 
 func (l *Ledger) loadLocked() ([]Metadata, error) {
-	data, err := os.ReadFile(l.path)
+	data, err := store.ReadSecure(l.path)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil, nil

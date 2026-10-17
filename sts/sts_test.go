@@ -183,8 +183,8 @@ func TestCheckHealth(t *testing.T) {
 	if expiringSoon != 1 {
 		t.Fatalf("expiringSoon = %d, want 1", expiringSoon)
 	}
-	if valid != 2 {
-		t.Fatalf("valid = %d, want 2", valid)
+	if valid != 0 || len(report.Unknown) != 2 {
+		t.Fatalf("valid = %d, unknown = %d; want 0, 2", valid, len(report.Unknown))
 	}
 }
 

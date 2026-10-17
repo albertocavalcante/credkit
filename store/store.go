@@ -53,47 +53,20 @@ func EnsureDir(path string) error {
 
 // WriteSecure writes data to path with FilePerm, creating parent directories
 // with DirPerm as needed. The replacement is atomic when path and its parent
-// are on the same filesystem.
+// are on the same filesystem. The parent is caller-trusted; use WriteSecureAt
+// when a configured application root must constrain descendant traversal.
 func WriteSecure(path string, data []byte) error {
 	dir := filepath.Dir(path)
 	if err := EnsureDir(dir); err != nil {
 		return err
 	}
-	temporary, err := os.CreateTemp(dir, ".credkit-write-*")
-	if err != nil {
-		return fmt.Errorf("create temporary credential file: %w", err)
-	}
-	temporaryPath := temporary.Name()
-	defer func() { _ = os.Remove(temporaryPath) }()
-	if err := temporary.Chmod(FilePerm); err != nil {
-		_ = temporary.Close()
-		return fmt.Errorf("secure temporary credential file: %w", err)
-	}
-	if _, err := temporary.Write(data); err != nil {
-		_ = temporary.Close()
-		return fmt.Errorf("write temporary credential file: %w", err)
-	}
-	if err := temporary.Sync(); err != nil {
-		_ = temporary.Close()
-		return fmt.Errorf("sync temporary credential file: %w", err)
-	}
-	if err := temporary.Close(); err != nil {
-		return fmt.Errorf("close temporary credential file: %w", err)
-	}
-	if err := os.Rename(temporaryPath, path); err != nil {
-		return fmt.Errorf("replace %s: %w", path, err)
-	}
-	return nil
+	return WriteSecureAt(dir, filepath.Base(path), data)
 }
 
 // ReadSecure reads data from path. Returns an error wrapping [os.ErrNotExist]
 // if the file does not exist.
 func ReadSecure(path string) ([]byte, error) {
-	data, err := os.ReadFile(path) //nolint:gosec // path from caller, validated upstream
-	if err != nil {
-		return nil, fmt.Errorf("read %s: %w", path, err)
-	}
-	return data, nil
+	return ReadSecureAt(filepath.Dir(path), filepath.Base(path))
 }
 
 // Exists reports whether path exists on disk.

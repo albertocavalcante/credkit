@@ -7,6 +7,8 @@ import (
 	"html"
 	"net"
 	"net/http"
+	"net/url"
+	"path"
 	"strings"
 	"sync"
 	"time"
@@ -15,6 +17,9 @@ import (
 // CallbackOptions configures the local HTTP server that receives the
 // authorization-server redirect during the auth-code flow.
 type CallbackOptions struct {
+	// ExpectedState, when nonempty, is checked before consuming a callback.
+	ExpectedState string
+
 	// Port to listen on. Zero means pick a free port (recommended for CLIs).
 	Port int
 
@@ -33,7 +38,7 @@ type CallbackOptions struct {
 }
 
 // CallbackResult is delivered when the authorization server redirects to the
-// local server with a successful response.
+// local server, including state on an error response.
 type CallbackResult struct {
 	Code  string
 	State string
@@ -65,6 +70,14 @@ func StartCallbackServer(opts CallbackOptions) (*CallbackServer, error) {
 	}
 	if !strings.HasPrefix(opts.Path, "/") {
 		opts.Path = "/" + opts.Path
+	}
+
+	u, parseErr := url.ParseRequestURI(opts.Path)
+	clean := path.Clean(opts.Path)
+	if parseErr != nil || u.IsAbs() || u.Path != opts.Path ||
+		strings.ContainsAny(opts.Path, "{}?# \t\r\n") || strings.Contains(opts.Path, "//") ||
+		(opts.Path != "/" && clean != strings.TrimSuffix(opts.Path, "/")) {
+		return nil, errors.New("oauth: callback path must be a literal absolute path")
 	}
 
 	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", opts.Port))
@@ -100,7 +113,8 @@ func (cb *CallbackServer) RedirectURL() string {
 // On error redirects (e.g. user denied consent), the returned error is a
 // *TokenError carrying the error code from the redirect.
 //
-// The caller is responsible for verifying CallbackResult.State against
+// Unless ExpectedState is configured, the caller must verify CallbackResult.State
+// on both success and error redirects against
 // the state passed to Config.AuthCodeURL. Use VerifyState for a
 // constant-time comparison. Skipping this check exposes the flow to CSRF
 // per RFC 6749 §10.12.
@@ -122,7 +136,18 @@ func (cb *CallbackServer) Close() error {
 
 func (cb *CallbackServer) handler(opts CallbackOptions) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != cb.path {
+			http.NotFound(w, r)
+			return
+		}
 		q := r.URL.Query()
+		state := q.Get("state")
+		if opts.ExpectedState != "" {
+			if err := VerifyState(opts.ExpectedState, state); err != nil {
+				writeBody(w, http.StatusBadRequest, opts.ErrorHTML, defaultErrorHTML("state mismatch"))
+				return
+			}
+		}
 
 		// Error redirect (RFC 6749 §4.1.2.1).
 		if errCode := q.Get("error"); errCode != "" {
@@ -131,19 +156,19 @@ func (cb *CallbackServer) handler(opts CallbackOptions) http.HandlerFunc {
 				Description: q.Get("error_description"),
 				URI:         q.Get("error_uri"),
 			}
-			cb.deliver(callbackEvent{err: err})
+			cb.deliver(callbackEvent{res: CallbackResult{State: state}, err: err})
 			writeBody(w, http.StatusBadRequest, opts.ErrorHTML, defaultErrorHTML(errCode))
 			return
 		}
 
 		code := q.Get(paramCode)
 		if code == "" {
-			cb.deliver(callbackEvent{err: errors.New("oauth: callback missing 'code' parameter")})
+			cb.deliver(callbackEvent{res: CallbackResult{State: state}, err: errors.New("oauth: callback missing 'code' parameter")})
 			writeBody(w, http.StatusBadRequest, opts.ErrorHTML, defaultErrorHTML("missing code"))
 			return
 		}
 
-		cb.deliver(callbackEvent{res: CallbackResult{Code: code, State: q.Get("state")}})
+		cb.deliver(callbackEvent{res: CallbackResult{Code: code, State: state}})
 		writeBody(w, http.StatusOK, opts.SuccessHTML, defaultSuccessHTML)
 	}
 }
