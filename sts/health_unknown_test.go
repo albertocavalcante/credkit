@@ -12,7 +12,7 @@ import (
 )
 
 func TestHealthReportsLedgerOnlyTokensAsUnknown(t *testing.T) {
-	l := token.NewLedger(filepath.Join(t.TempDir(), "ledger.json"))
+	l := token.NewLedger(filepath.Join(privateTestDir(t), "ledger.json"))
 	if err := l.Record(&token.Metadata{Provider: "test", ID: "unobserved", Name: "unobserved"}); err != nil {
 		t.Fatal(err)
 	}
@@ -42,7 +42,7 @@ func TestHealthCountsIncludeUnknown(t *testing.T) {
 func TestHealthRespectsCanceledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	_, err := sts.CheckHealth(ctx, newMockProvider(), token.NewLedger(filepath.Join(t.TempDir(), "ledger.json")), time.Hour)
+	_, err := sts.CheckHealth(ctx, newMockProvider(), token.NewLedger(filepath.Join(privateTestDir(t), "ledger.json")), time.Hour)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("got %v, want cancellation", err)
 	}

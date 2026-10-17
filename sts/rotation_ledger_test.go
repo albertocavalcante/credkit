@@ -10,7 +10,7 @@ import (
 )
 
 func TestRotateRemovesLedgerEntryByProviderAndID(t *testing.T) {
-	ledger := token.NewLedger(filepath.Join(t.TempDir(), "ledger.json"))
+	ledger := token.NewLedger(filepath.Join(privateTestDir(t), "ledger.json"))
 	for _, entry := range []token.Metadata{
 		{Provider: "test", Name: "production", ID: "old-id"},
 		{Provider: "test", Name: "old-id", ID: "keep-id"},

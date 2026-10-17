@@ -10,7 +10,7 @@ import (
 )
 
 func TestNewManager_DefaultTTL(t *testing.T) {
-	m := session.NewManager(t.TempDir(), 0)
+	m := session.NewManager(privateTestDir(t), 0)
 	// Save should use DefaultTTL.
 	if err := m.Save("test", "key"); err != nil {
 		t.Fatal(err)
@@ -25,7 +25,7 @@ func TestNewManager_DefaultTTL(t *testing.T) {
 }
 
 func TestNewManager_CustomTTL(t *testing.T) {
-	m := session.NewManager(t.TempDir(), 30*time.Minute)
+	m := session.NewManager(privateTestDir(t), 30*time.Minute)
 	if err := m.Save("test", "key"); err != nil {
 		t.Fatal(err)
 	}
@@ -36,7 +36,7 @@ func TestNewManager_CustomTTL(t *testing.T) {
 }
 
 func TestSaveAndLoad(t *testing.T) {
-	dir := t.TempDir()
+	dir := privateTestDir(t)
 	m := session.NewManager(dir, time.Hour)
 
 	if err := m.Save("bitwarden", "session-key-123"); err != nil {
@@ -59,7 +59,7 @@ func TestSaveAndLoad(t *testing.T) {
 }
 
 func TestLoad_NotFound(t *testing.T) {
-	m := session.NewManager(t.TempDir(), time.Hour)
+	m := session.NewManager(privateTestDir(t), time.Hour)
 	_, err := m.Load("nonexistent")
 	if err == nil {
 		t.Fatal("expected error")
@@ -67,7 +67,7 @@ func TestLoad_NotFound(t *testing.T) {
 }
 
 func TestLoad_InvalidJSON(t *testing.T) {
-	dir := t.TempDir()
+	dir := privateTestDir(t)
 	if err := os.WriteFile(filepath.Join(dir, "session-bad.json"), []byte("{corrupt"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +99,7 @@ func TestIsExpired(t *testing.T) {
 }
 
 func TestClear(t *testing.T) {
-	dir := t.TempDir()
+	dir := privateTestDir(t)
 	m := session.NewManager(dir, time.Hour)
 
 	m.Save("test", "key")
@@ -113,14 +113,14 @@ func TestClear(t *testing.T) {
 }
 
 func TestClear_NonexistentIsOK(t *testing.T) {
-	m := session.NewManager(t.TempDir(), time.Hour)
+	m := session.NewManager(privateTestDir(t), time.Hour)
 	if err := m.Clear("nonexistent"); err != nil {
 		t.Fatalf("clearing nonexistent should succeed, got %v", err)
 	}
 }
 
 func TestResolve_ExplicitWins(t *testing.T) {
-	m := session.NewManager(t.TempDir(), time.Hour)
+	m := session.NewManager(privateTestDir(t), time.Hour)
 	t.Setenv("CREDKIT_SESS", "from-env")
 	m.Save("test", "cached")
 
@@ -134,7 +134,7 @@ func TestResolve_ExplicitWins(t *testing.T) {
 }
 
 func TestResolve_EnvFallback(t *testing.T) {
-	m := session.NewManager(t.TempDir(), time.Hour)
+	m := session.NewManager(privateTestDir(t), time.Hour)
 	t.Setenv("CREDKIT_SESS", "from-env")
 
 	key, err := m.Resolve("test", "", "CREDKIT_SESS")
@@ -147,7 +147,7 @@ func TestResolve_EnvFallback(t *testing.T) {
 }
 
 func TestResolve_CachedFallback(t *testing.T) {
-	dir := t.TempDir()
+	dir := privateTestDir(t)
 	m := session.NewManager(dir, time.Hour)
 	t.Setenv("CREDKIT_SESS_UNUSED", "")
 
@@ -163,7 +163,7 @@ func TestResolve_CachedFallback(t *testing.T) {
 }
 
 func TestResolve_ExpiredCacheReturnsEmpty(t *testing.T) {
-	dir := t.TempDir()
+	dir := privateTestDir(t)
 	// Very short TTL so it expires immediately.
 	m := session.NewManager(dir, time.Nanosecond)
 	m.Save("test", "expired-key")
@@ -179,7 +179,7 @@ func TestResolve_ExpiredCacheReturnsEmpty(t *testing.T) {
 }
 
 func TestResolve_NoCacheReturnsEmpty(t *testing.T) {
-	m := session.NewManager(t.TempDir(), time.Hour)
+	m := session.NewManager(privateTestDir(t), time.Hour)
 	key, err := m.Resolve("test", "")
 	if err != nil {
 		t.Fatal(err)
@@ -190,7 +190,7 @@ func TestResolve_NoCacheReturnsEmpty(t *testing.T) {
 }
 
 func TestEmptyProvider_UsesDefaultPath(t *testing.T) {
-	dir := t.TempDir()
+	dir := privateTestDir(t)
 	m := session.NewManager(dir, time.Hour)
 
 	m.Save("", "default-key")
@@ -209,7 +209,7 @@ func TestEmptyProvider_UsesDefaultPath(t *testing.T) {
 }
 
 func TestNamedProvider_UsesSeparateFile(t *testing.T) {
-	dir := t.TempDir()
+	dir := privateTestDir(t)
 	m := session.NewManager(dir, time.Hour)
 
 	m.Save("bw", "bw-key")
@@ -220,4 +220,14 @@ func TestNamedProvider_UsesSeparateFile(t *testing.T) {
 	if bw.Key != "bw-key" || cf.Key != "cf-key" {
 		t.Fatalf("separate providers should have separate files")
 	}
+}
+
+// privateTestDir represents an already-provisioned secure storage root.
+func privateTestDir(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	return dir
 }

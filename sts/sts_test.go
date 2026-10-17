@@ -3,6 +3,7 @@ package sts_test
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -55,7 +56,7 @@ func newMockProvider() *mockProvider {
 
 func TestRotate_Success(t *testing.T) {
 	p := newMockProvider()
-	dir := t.TempDir()
+	dir := privateTestDir(t)
 	ledger := token.NewLedger(filepath.Join(dir, "tokens.json"))
 	auditLog := audit.NewLogger(filepath.Join(dir, "audit.log"))
 
@@ -155,7 +156,7 @@ func TestRotate_ContextCancelled(t *testing.T) {
 }
 
 func TestCheckHealth(t *testing.T) {
-	dir := t.TempDir()
+	dir := privateTestDir(t)
 	ledger := token.NewLedger(filepath.Join(dir, "tokens.json"))
 	p := newMockProvider()
 
@@ -189,7 +190,7 @@ func TestCheckHealth(t *testing.T) {
 }
 
 func TestCheckHealth_EmptyLedger(t *testing.T) {
-	dir := t.TempDir()
+	dir := privateTestDir(t)
 	ledger := token.NewLedger(filepath.Join(dir, "tokens.json"))
 	p := newMockProvider()
 
@@ -214,4 +215,14 @@ func TestHealthReport_Counts(t *testing.T) {
 	if total != 4 || valid != 2 || invalid != 1 || expired != 0 || expiringSoon != 1 {
 		t.Fatalf("counts = %d/%d/%d/%d/%d", total, valid, invalid, expired, expiringSoon)
 	}
+}
+
+// privateTestDir represents an already-provisioned secure storage root.
+func privateTestDir(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	return dir
 }

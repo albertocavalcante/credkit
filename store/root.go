@@ -80,6 +80,9 @@ func secureDirectory(r *os.Root, expected os.FileInfo, create bool) error {
 		mode = DirPerm
 	}
 	if mode != info.Mode().Perm() {
+		if !create {
+			return ErrUnsafePath
+		}
 		if err := f.Chmod(mode); err != nil {
 			return fmt.Errorf("secure directory handle: %w", err)
 		}
@@ -174,6 +177,10 @@ func openManagedFile(r *os.Root, name string, flags int, create bool) (*os.File,
 			mode = FilePerm
 		}
 		if mode != opened.Mode().Perm() {
+			if flags&(os.O_WRONLY|os.O_RDWR) == 0 {
+				_ = f.Close()
+				return nil, ErrUnsafePath
+			}
 			if err := f.Chmod(mode); err != nil {
 				_ = f.Close()
 				return nil, err
@@ -185,6 +192,7 @@ func openManagedFile(r *os.Root, name string, flags int, create bool) (*os.File,
 }
 
 // ReadSecureAt reads an owner-only regular file beneath the trusted root.
+// Unsafe permissions return ErrUnsafePath; reads never repair permissions.
 func ReadSecureAt(rootDir, name string) ([]byte, error) {
 	r, base, err := openParent(rootDir, name, false)
 	if err != nil {
@@ -204,6 +212,7 @@ func ReadSecureAt(rootDir, name string) ([]byte, error) {
 }
 
 // RemoveSecureAt removes a regular file beneath the trusted root.
+// Parent directories must already be owner-only; removal never repairs modes.
 func RemoveSecureAt(rootDir, name string) error {
 	r, base, err := openParent(rootDir, name, false)
 	if err != nil {
@@ -217,6 +226,7 @@ func RemoveSecureAt(rootDir, name string) error {
 }
 
 // ReadDirSecureAt lists a real managed directory in filename order.
+// The root and managed directories must already be owner-only. Modes are unchanged.
 func ReadDirSecureAt(rootDir, name string) ([]fs.DirEntry, error) {
 	r, err := openDirectory(rootDir, name, false)
 	if err != nil {
@@ -226,15 +236,16 @@ func ReadDirSecureAt(rootDir, name string) ([]fs.DirEntry, error) {
 	return fs.ReadDir(r.FS(), ".")
 }
 
-// ExistsSecureAt reports whether a regular file exists beneath the root.
+// ExistsSecureAt reports whether an owner-only regular file exists beneath the root.
+// Unsafe paths or permissions report false without changing filesystem modes.
 func ExistsSecureAt(rootDir, name string) bool {
 	r, base, err := openParent(rootDir, name, false)
 	if err != nil {
 		return false
 	}
 	defer func() { _ = r.Close() }()
-	_, err = regularInfo(r, base)
-	return err == nil
+	info, err := regularInfo(r, base)
+	return err == nil && info.Mode().Perm()&^FilePerm == 0
 }
 
 // OpenAppendSecure opens an owner-only regular file for append. Its parent is

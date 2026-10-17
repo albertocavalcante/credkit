@@ -11,7 +11,7 @@ import (
 )
 
 func TestLoadPreservesUnderlyingStorageError(t *testing.T) {
-	dir := t.TempDir()
+	dir := privateTestDir(t)
 	m := profile.NewManagerWithDir(dir)
 	if _, err := m.Load("missing"); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("missing error lost: %v", err)
@@ -25,7 +25,7 @@ func TestLoadPreservesUnderlyingStorageError(t *testing.T) {
 }
 
 func TestActiveReadFailureNeverSelectsDefault(t *testing.T) {
-	dir := t.TempDir()
+	dir := privateTestDir(t)
 	if err := os.Mkdir(filepath.Join(dir, "active-profile"), 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -36,7 +36,7 @@ func TestActiveReadFailureNeverSelectsDefault(t *testing.T) {
 }
 
 func TestDeleteReportsActiveMarkerFailure(t *testing.T) {
-	dir := t.TempDir()
+	dir := privateTestDir(t)
 	m := profile.NewManagerWithDir(dir)
 	if err := m.Save("work", &profile.Profile{}); err != nil {
 		t.Fatal(err)

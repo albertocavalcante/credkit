@@ -15,8 +15,8 @@ const (
 	FilePerm = 0o600
 )
 
-// ErrUnsafePath is returned when a sensitive-data directory is a symlink or
-// another non-directory filesystem object.
+// ErrUnsafePath identifies unsafe sensitive-data paths or permissions, including
+// managed symlinks, unexpected file types, and permissions outside the storage policy.
 var ErrUnsafePath = errors.New("unsafe sensitive-data path")
 
 // XDGConfigDir returns the XDG-compliant config directory for the given app.
