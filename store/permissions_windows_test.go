@@ -13,8 +13,12 @@ import (
 )
 
 func TestWindowsPrivateInheritedStorageRoundTrip(t *testing.T) {
-	root := t.TempDir()
-	t.Logf("inherited root descriptor: %s", windowsDescriptor(t, root))
+	parent := windowsPrivateRoot(t)
+	root, err := os.MkdirTemp(parent, "inherited-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("inherited private root descriptor: %s", windowsDescriptor(t, root))
 	if err := store.WriteSecureAt(root, "managed/secret", []byte("synthetic")); err != nil {
 		t.Fatal(err)
 	}

@@ -75,19 +75,7 @@ func secureDirectory(r *os.Root, expected os.FileInfo, create bool) error {
 	if !info.IsDir() || (expected != nil && !os.SameFile(info, expected)) {
 		return ErrUnsafePath
 	}
-	mode := info.Mode().Perm() & DirPerm
-	if create {
-		mode = DirPerm
-	}
-	if mode != info.Mode().Perm() {
-		if !create {
-			return ErrUnsafePath
-		}
-		if err := f.Chmod(mode); err != nil {
-			return fmt.Errorf("secure directory handle: %w", err)
-		}
-	}
-	return nil
+	return securePermissions(f, info, DirPerm, create)
 }
 
 func openParent(rootDir, name string, create bool) (*os.Root, string, error) {
@@ -127,7 +115,11 @@ func WriteSecureAt(rootDir, name string, data []byte) error {
 	}
 	defer func() { _ = r.Remove(temporary) }()
 	defer func() { _ = f.Close() }()
-	if err := f.Chmod(FilePerm); err != nil {
+	info, err := f.Stat()
+	if err != nil {
+		return fmt.Errorf("inspect temporary credential file: %w", err)
+	}
+	if err := securePermissions(f, info, FilePerm, true); err != nil {
 		return fmt.Errorf("secure temporary credential file: %w", err)
 	}
 	if _, err := f.Write(data); err != nil {
@@ -172,19 +164,9 @@ func openManagedFile(r *os.Root, name string, flags int, create bool) (*os.File,
 			_ = f.Close()
 			return nil, ErrUnsafePath
 		}
-		mode := opened.Mode().Perm() & FilePerm
-		if flags&(os.O_WRONLY|os.O_RDWR) != 0 {
-			mode = FilePerm
-		}
-		if mode != opened.Mode().Perm() {
-			if flags&(os.O_WRONLY|os.O_RDWR) == 0 {
-				_ = f.Close()
-				return nil, ErrUnsafePath
-			}
-			if err := f.Chmod(mode); err != nil {
-				_ = f.Close()
-				return nil, err
-			}
+		if err := securePermissions(f, opened, FilePerm, flags&(os.O_WRONLY|os.O_RDWR) != 0); err != nil {
+			_ = f.Close()
+			return nil, err
 		}
 		return f, nil
 	}
@@ -244,8 +226,11 @@ func ExistsSecureAt(rootDir, name string) bool {
 		return false
 	}
 	defer func() { _ = r.Close() }()
-	info, err := regularInfo(r, base)
-	return err == nil && info.Mode().Perm()&^FilePerm == 0
+	f, err := openManagedFile(r, base, os.O_RDONLY, false)
+	if err != nil {
+		return false
+	}
+	return f.Close() == nil
 }
 
 // OpenAppendSecure opens an owner-only regular file for append. Its parent is
