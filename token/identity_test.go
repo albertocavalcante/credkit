@@ -8,7 +8,7 @@ import (
 )
 
 func TestFindByIDUsesExactProviderNativeID(t *testing.T) {
-	l := token.NewLedger(filepath.Join(t.TempDir(), "ledger.json"))
+	l := token.NewLedger(filepath.Join(privateTestDir(t), "ledger.json"))
 	for _, entry := range []token.Metadata{
 		{Provider: "test", Name: "target-id", ID: "different-id"},
 		{Provider: "other", Name: "other", ID: "target-id"},

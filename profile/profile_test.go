@@ -12,11 +12,11 @@ import (
 
 func newTestManager(t *testing.T) *profile.Manager {
 	t.Helper()
-	return profile.NewManagerWithDir(t.TempDir())
+	return profile.NewManagerWithDir(privateTestDir(t))
 }
 
 func TestNewManager(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", privateTestDir(t))
 	m, err := profile.NewManager("test-app")
 	if err != nil {
 		t.Fatal(err)
@@ -73,7 +73,7 @@ func TestLoad_NotFound(t *testing.T) {
 }
 
 func TestLoad_InvalidJSON(t *testing.T) {
-	dir := t.TempDir()
+	dir := privateTestDir(t)
 	m := profile.NewManagerWithDir(dir)
 
 	// Write invalid JSON to profile file.
@@ -92,7 +92,7 @@ func TestLoad_InvalidJSON(t *testing.T) {
 }
 
 func TestList_SortedAndSkipsInvalid(t *testing.T) {
-	dir := t.TempDir()
+	dir := privateTestDir(t)
 	m := profile.NewManagerWithDir(dir)
 
 	// Save two valid profiles out of order.
@@ -119,7 +119,7 @@ func TestList_SortedAndSkipsInvalid(t *testing.T) {
 }
 
 func TestList_DirNotExist(t *testing.T) {
-	m := profile.NewManagerWithDir(filepath.Join(t.TempDir(), "nope"))
+	m := profile.NewManagerWithDir(filepath.Join(privateTestDir(t), "nope"))
 	list, err := m.List()
 	if err != nil {
 		t.Fatal(err)
@@ -322,7 +322,7 @@ func TestNewManager_Error(t *testing.T) {
 
 func TestList_ReadDirError(t *testing.T) {
 	// Point profiles dir at a file (not a directory).
-	dir := t.TempDir()
+	dir := privateTestDir(t)
 	profilesDir := filepath.Join(dir, "profiles")
 	os.WriteFile(profilesDir, []byte("not-a-dir"), 0o600)
 
@@ -334,7 +334,7 @@ func TestList_ReadDirError(t *testing.T) {
 }
 
 func TestDelete_RemoveError(t *testing.T) {
-	dir := t.TempDir()
+	dir := privateTestDir(t)
 	m := profile.NewManagerWithDir(dir)
 	m.Save("victim", &profile.Profile{Fields: map[string]string{}})
 
@@ -366,4 +366,14 @@ func TestProfileJSON_Roundtrip(t *testing.T) {
 	if p2.Name != p.Name || p2.Fields["key"] != "val" {
 		t.Fatalf("roundtrip mismatch: %+v", p2)
 	}
+}
+
+// privateTestDir represents an already-provisioned secure storage root.
+func privateTestDir(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	return dir
 }

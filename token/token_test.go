@@ -11,7 +11,7 @@ import (
 
 func newLedger(t *testing.T) *token.Ledger {
 	t.Helper()
-	return token.NewLedger(filepath.Join(t.TempDir(), "tokens.json"))
+	return token.NewLedger(filepath.Join(privateTestDir(t), "tokens.json"))
 }
 
 func TestRecord_And_List(t *testing.T) {
@@ -143,7 +143,7 @@ func TestRemove_Nonexistent(t *testing.T) {
 }
 
 func TestRecord_CorruptedFile(t *testing.T) {
-	dir := t.TempDir()
+	dir := privateTestDir(t)
 	path := filepath.Join(dir, "tokens.json")
 
 	// Write corrupt data.
@@ -157,7 +157,7 @@ func TestRecord_CorruptedFile(t *testing.T) {
 }
 
 func TestList_CorruptedFile(t *testing.T) {
-	dir := t.TempDir()
+	dir := privateTestDir(t)
 	path := filepath.Join(dir, "tokens.json")
 	os.WriteFile(path, []byte("garbage"), 0o600)
 
@@ -247,7 +247,7 @@ func TestRemove_EmptyLedger(t *testing.T) {
 
 func TestRecord_ReadError(t *testing.T) {
 	// Make ledger file unreadable.
-	dir := t.TempDir()
+	dir := privateTestDir(t)
 	path := filepath.Join(dir, "tokens.json")
 	os.WriteFile(path, []byte("[]"), 0o000)
 	t.Cleanup(func() { os.Chmod(path, 0o600) })
@@ -297,7 +297,7 @@ func TestFindByID(t *testing.T) {
 }
 
 func TestList_ReadError(t *testing.T) {
-	dir := t.TempDir()
+	dir := privateTestDir(t)
 	path := filepath.Join(dir, "tokens.json")
 	os.WriteFile(path, []byte("[]"), 0o000)
 	t.Cleanup(func() { os.Chmod(path, 0o600) })
@@ -310,7 +310,7 @@ func TestList_ReadError(t *testing.T) {
 }
 
 func TestExpiring_ReadError(t *testing.T) {
-	dir := t.TempDir()
+	dir := privateTestDir(t)
 	path := filepath.Join(dir, "tokens.json")
 	os.WriteFile(path, []byte("[]"), 0o000)
 	t.Cleanup(func() { os.Chmod(path, 0o600) })
@@ -323,7 +323,7 @@ func TestExpiring_ReadError(t *testing.T) {
 }
 
 func TestRemove_ReadError(t *testing.T) {
-	dir := t.TempDir()
+	dir := privateTestDir(t)
 	path := filepath.Join(dir, "tokens.json")
 	os.WriteFile(path, []byte("[]"), 0o000)
 	t.Cleanup(func() { os.Chmod(path, 0o600) })
@@ -336,7 +336,7 @@ func TestRemove_ReadError(t *testing.T) {
 }
 
 func TestExpiring_NonexistentFile(t *testing.T) {
-	l := token.NewLedger(filepath.Join(t.TempDir(), "nope.json"))
+	l := token.NewLedger(filepath.Join(privateTestDir(t), "nope.json"))
 	expiring, err := l.Expiring(time.Hour)
 	if err != nil {
 		t.Fatal(err)
@@ -344,4 +344,14 @@ func TestExpiring_NonexistentFile(t *testing.T) {
 	if expiring != nil {
 		t.Fatalf("expected nil, got %v", expiring)
 	}
+}
+
+// privateTestDir represents an already-provisioned secure storage root.
+func privateTestDir(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	return dir
 }

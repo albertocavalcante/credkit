@@ -181,7 +181,11 @@ whose count is available as `len(report.Unknown)`.
 Profile, session and file-secret managers treat their configured directory as
 the trusted storage root, including an intentional symlink at that root. Managed
 descendant directories and files must not be symlinks. Rooted IO uses `os.Root`
-and owner-only permissions; read/remove paths preserve owner read-only intent.
+and owner-only permissions. Reads and listings never create paths or repair modes;
+unsafe permissions return `store.ErrUnsafePath`. Secure existence checks return
+false for unsafe paths. Already-private read-only files and directories retain
+their modes, including 0400 files and 0500 directories. Removal also requires
+already-private parents and never adjusts modes.
 The absolute-path store helpers trust their immediate parent. Call the `*At`
 functions with an explicit application root to constrain descendant traversal.
 Audit appends reject symlinks/nonregular files and repair overly broad file modes.
@@ -238,3 +242,14 @@ go test ./oauth -run '^$' -fuzz '^FuzzTokenUnmarshal$' -fuzztime 30s -parallel 2
 go test ./oauth -run '^$' -fuzz '^FuzzAuthCodeURLReservedParameters$' -fuzztime 30s -parallel 2
 go test ./secret -run '^$' -fuzz '^FuzzKeychainEncodingMetadata$' -fuzztime 30s -parallel 2
 ```
+
+Secure reads now reject overly broad existing permissions instead of repairing
+them as a side effect. This keeps credential resolution and consumer dry runs
+free of permission changes. Provision private directories explicitly before
+reading existing data, or repair known paths in a separate authorized migration.
+The core `WriteSecure`, `WriteSecureAt`, and `OpenAppendSecure` operations still
+repair the paths they manage to 0700 directories and 0600 files. Operations
+that first load existing metadata, including ledger mutators, can fail with
+`ErrUnsafePath` before writing and require explicit provisioning or migration.
+A missing path under an unsafe existing root is reported as unsafe rather than
+silently treated as absent.

@@ -10,7 +10,7 @@ import (
 )
 
 func TestResolvePreservesCorruptCacheErrors(t *testing.T) {
-	dir := t.TempDir()
+	dir := privateTestDir(t)
 	if err := os.WriteFile(filepath.Join(dir, "session-test.json"), []byte("broken"), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -20,7 +20,7 @@ func TestResolvePreservesCorruptCacheErrors(t *testing.T) {
 }
 
 func TestSubsecondSessionSurvivesSave(t *testing.T) {
-	m := session.NewManager(t.TempDir(), 900*time.Millisecond)
+	m := session.NewManager(privateTestDir(t), 900*time.Millisecond)
 	if err := m.Save("test", "synthetic"); err != nil {
 		t.Fatal(err)
 	}
@@ -34,7 +34,7 @@ func TestSubsecondSessionSurvivesSave(t *testing.T) {
 }
 
 func TestExplicitSessionDoesNotReadCorruptCache(t *testing.T) {
-	dir := t.TempDir()
+	dir := privateTestDir(t)
 	if err := os.WriteFile(filepath.Join(dir, "session-test.json"), []byte("broken"), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +46,7 @@ func TestExplicitSessionDoesNotReadCorruptCache(t *testing.T) {
 
 func TestPreciseExpiryAndLegacyCompatibility(t *testing.T) {
 	ttl := 1500 * time.Millisecond
-	m := session.NewManager(t.TempDir(), ttl)
+	m := session.NewManager(privateTestDir(t), ttl)
 	if err := m.Save("test", "value"); err != nil {
 		t.Fatal(err)
 	}

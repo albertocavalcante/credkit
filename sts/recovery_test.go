@@ -73,7 +73,7 @@ func TestRotateRollbackUsesLiveBoundedContext(t *testing.T) {
 }
 
 func TestRotateStopsBeforeOldRevocationWhenRecordingFails(t *testing.T) {
-	blocker := filepath.Join(t.TempDir(), "file")
+	blocker := filepath.Join(privateTestDir(t), "file")
 	if err := os.WriteFile(blocker, nil, 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -90,13 +90,13 @@ func TestRotateReturnsPostRevocationPersistenceFailures(t *testing.T) {
 	for _, kind := range []string{"remove", "audit"} {
 		t.Run(kind, func(t *testing.T) {
 			p := newMockProvider()
-			path := filepath.Join(t.TempDir(), "ledger.json")
+			path := filepath.Join(privateTestDir(t), "ledger.json")
 			ledger := token.NewLedger(path)
 			opts := []sts.RotateOption{sts.WithLedger(ledger)}
 			if kind == "remove" {
 				p.revokeFunc = func(context.Context, string) error { return os.WriteFile(path, []byte("broken"), 0600) }
 			} else {
-				blocker := filepath.Join(t.TempDir(), "file")
+				blocker := filepath.Join(privateTestDir(t), "file")
 				if err := os.WriteFile(blocker, nil, 0600); err != nil {
 					t.Fatal(err)
 				}
@@ -124,7 +124,7 @@ func TestRotateRejectsInvalidReplacementWithoutRevokingOld(t *testing.T) {
 }
 
 func TestRotateReportsCompletedProgress(t *testing.T) {
-	dir := t.TempDir()
+	dir := privateTestDir(t)
 	got, err := sts.Rotate(t.Context(), newMockProvider(), "old-id", &sts.IssueRequest{Name: "new"}, sts.WithLedger(token.NewLedger(filepath.Join(dir, "ledger.json"))), sts.WithAudit(audit.NewLogger(filepath.Join(dir, "audit.log")), "test"))
 	if err != nil {
 		t.Fatal(err)
