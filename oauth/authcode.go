@@ -51,26 +51,11 @@ type Config struct {
 // AuthCodeURL builds the authorization-endpoint URL for a fresh login.
 // The caller should open this URL in a browser and receive the auth code
 // at RedirectURL. state must be a cryptographically random value the
-// caller verifies on callback to prevent CSRF.
+// caller verifies on callback to prevent CSRF. Invalid configuration returns
+// an empty string; use AuthCodeURLChecked to receive the validation error.
 func (c Config) AuthCodeURL(state string, pkce PKCE) string {
-	q := url.Values{
-		"response_type":  {"code"},
-		paramClientID:    {c.ClientID},
-		paramRedirectURI: {c.RedirectURL},
-		"state":          {state},
-	}
-	if len(c.Scopes) > 0 {
-		q.Set("scope", strings.Join(c.Scopes, " "))
-	}
-	if pkce.Challenge != "" {
-		q.Set("code_challenge", pkce.Challenge)
-		q.Set("code_challenge_method", string(pkce.Method))
-	}
-	sep := "?"
-	if strings.Contains(c.AuthURL, "?") {
-		sep = "&"
-	}
-	return c.AuthURL + sep + q.Encode()
+	raw, _ := c.AuthCodeURLChecked(state, pkce)
+	return raw
 }
 
 // Exchange trades an authorization code for an access token.
@@ -169,4 +154,35 @@ func parseTokenError(status int, body []byte) *TokenError {
 		te.URI = wire.ErrorURI
 	}
 	return te
+}
+
+// AuthCodeURLChecked builds an authorization URL with explicit validation errors.
+func (c Config) AuthCodeURLChecked(state string, pkce PKCE) (string, error) {
+	u, err := url.Parse(c.AuthURL)
+	if err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") || u.Fragment != "" {
+		return "", errors.New("oauth: invalid authorization endpoint")
+	}
+	q, err := url.ParseQuery(u.RawQuery)
+	if err != nil {
+		return "", errors.New("oauth: invalid authorization endpoint query")
+	}
+	q.Set("response_type", "code")
+	q.Set(paramClientID, c.ClientID)
+	q.Set(paramRedirectURI, c.RedirectURL)
+	q.Set("state", state)
+	q.Del("scope")
+	q.Del("code_challenge")
+	q.Del("code_challenge_method")
+	if len(c.Scopes) > 0 {
+		q.Set("scope", strings.Join(c.Scopes, " "))
+	}
+	if pkce.Challenge != "" {
+		if pkce.Method != MethodS256 {
+			return "", errors.New("oauth: authorization requires S256 PKCE")
+		}
+		q.Set("code_challenge", pkce.Challenge)
+		q.Set("code_challenge_method", string(pkce.Method))
+	}
+	u.RawQuery = q.Encode()
+	return u.String(), nil
 }

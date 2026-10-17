@@ -160,3 +160,8 @@ MIT
 OAuth token requests refuse redirects and bound decompressed responses to 1 MiB.
 Successful responses require a nonempty access token. Public token JSON decoding
 replaces prior derived fields and rejects expiry arithmetic overflow.
+
+Use `AuthCodeURLChecked` to receive invalid-configuration errors. Configure
+`CallbackOptions.ExpectedState` to reject unrelated callbacks before consuming
+the pending login; error callbacks preserve state too. Without that option,
+the application must verify state on successful and error redirects.
