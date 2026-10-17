@@ -42,13 +42,14 @@ type Store interface {
 	Delete(context.Context, Key) error
 }
 
-// FileStore persists each value in a dedicated owner-only file. It is a
-// portable fallback for hosts without an OS credential store.
+// FileStore persists each value in a dedicated private file. It is a portable
+// fallback for hosts without an OS credential store. POSIX modes are owner-only;
+// Windows requires pre-provisioned private ACLs as documented by package store.
 type FileStore struct {
 	Dir string
 }
 
-// Put atomically replaces a file-backed secret.
+// Put replaces a file-backed secret using the staged storage operation.
 func (s FileStore) Put(ctx context.Context, key Key, value []byte) error {
 	if err := ctx.Err(); err != nil {
 		return err

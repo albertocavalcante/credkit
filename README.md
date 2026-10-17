@@ -147,9 +147,9 @@ total, valid, invalid, expired, expiringSoon := report.Counts()
 
 ## Design Principles
 
-- **Stdlib-first**: Only external dependency is `golang.org/x/term` for masked terminal input
+- **Stdlib-first**: `golang.org/x/term` supplies masked terminal input; `golang.org/x/sys/windows` supplies native ACL validation
 - **XDG-compliant**: Respects `$XDG_CONFIG_HOME`, falls back to `~/.config/<app>`
-- **Secure by default**: Files at 0600, directories at 0700
+- **Secure by default**: POSIX files at 0600 and directories at 0700; Windows validates explicitly provisioned private ACLs
 - **Standalone-friendly**: Each CLI tool imports only what it needs, no orchestrator dependency
 - **Thread-safe**: Ledger transactions are serialized across instances in this process; each audit logger supports concurrent use
 
@@ -181,10 +181,10 @@ whose count is available as `len(report.Unknown)`.
 Profile, session and file-secret managers treat their configured directory as
 the trusted storage root, including an intentional symlink at that root. Managed
 descendant directories and files must not be symlinks. Rooted IO uses `os.Root`
-and owner-only permissions. Reads and listings never create paths or repair modes;
+and platform-specific permission checks. Reads and listings never create paths or repair permissions;
 unsafe permissions return `store.ErrUnsafePath`. Secure existence checks return
-false for unsafe paths. Already-private read-only files and directories retain
-their modes, including 0400 files and 0500 directories. Removal also requires
+false for unsafe paths. On POSIX systems, already-private read-only files and
+directories retain their modes, including 0400 files and 0500 directories. Removal also requires
 already-private parents and never adjusts modes.
 The absolute-path store helpers trust their immediate parent. Call the `*At`
 functions with an explicit application root to constrain descendant traversal.
@@ -247,9 +247,44 @@ Secure reads now reject overly broad existing permissions instead of repairing
 them as a side effect. This keeps credential resolution and consumer dry runs
 free of permission changes. Provision private directories explicitly before
 reading existing data, or repair known paths in a separate authorized migration.
-The core `WriteSecure`, `WriteSecureAt`, and `OpenAppendSecure` operations still
-repair the paths they manage to 0700 directories and 0600 files. Operations
+On POSIX systems, the core `WriteSecure`, `WriteSecureAt`, and `OpenAppendSecure`
+operations still repair the paths they manage to 0700 directories and 0600 files. Operations
 that first load existing metadata, including ledger mutators, can fail with
 `ErrUnsafePath` before writing and require explicit provisioning or migration.
 A missing path under an unsafe existing root is reported as unsafe rather than
 silently treated as absent.
+
+
+### Windows storage boundary
+
+Windows mode bits report read-only attributes, not file access control. Storage
+therefore validates the security descriptor of each opened directory/file handle.
+The owner and every access-granting ACE must identify the effective calling user,
+LocalSystem, or BUILTIN\Administrators. Missing/null DACLs, other principals, and
+unsupported object-specific or conditional ACE forms fail closed. Broad grants
+are rejected even when inheritance-only, because they could expose new children.
+Applications using thread impersonation must keep that identity bound to its OS
+thread while performing storage operations.
+
+Provision a private application directory with private inheritable ACLs before
+using file-backed credentials. Existing user-profile or temporary directories can
+grant additional accounts access; their location alone is not proof of privacy.
+Reads, existence checks, writes and appends never repair Windows ACLs or change
+read-only attributes. A private read-only file remains readable. Writes validate
+parents and new staging files before writing credential bytes; permission failures
+return an error instead of silently accepting broader access. This library does
+not provide a Windows ACL migration or installation command.
+
+Replacement uses the operating system's rename operation; atomicity depends on
+the OS and filesystem. On Windows, an external handle opened without delete sharing
+can prevent replacement. Such failures preserve the previous credential and are
+returned to the caller. Credential reads through this library use rooted handles
+that permit delete sharing; callers must still handle concurrent identity-check
+failures as described above.
+
+Windows CI runs `scripts/check-windows.ps1`: build, uncached native tests and vet.
+Its temporary fixtures inherit an explicitly private ACL created only on a new
+task-owned directory; the script restores process environment and removes that
+directory afterward. POSIX mode-only tests are replaced by native ACL tests on
+Windows. Symlink-only subtests skip when the OS reports missing symlink privilege;
+traversal and nonregular-file tests still run. macOS/Linux retain race-enabled CI.

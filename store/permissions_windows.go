@@ -41,7 +41,8 @@ func validateWindowsDescriptor(sd *windows.SECURITY_DESCRIPTOR, currentUser *win
 	if err != nil || control&windows.SE_SELF_RELATIVE == 0 {
 		return ErrUnsafePath
 	}
-	base, length := uintptr(unsafe.Pointer(sd)), uintptr(sd.Length())
+	base := uintptr(unsafe.Pointer(sd)) //nolint:gosec // G103: owned self-relative descriptor bounds; no pointer arithmetic dereference
+	length := uintptr(sd.Length())
 	for i := range int(dacl.AceCount) {
 		var ace *windows.ACCESS_ALLOWED_ACE
 		if err := windows.GetAce(dacl, uint32(i), &ace); err != nil || ace == nil {
@@ -49,8 +50,8 @@ func validateWindowsDescriptor(sd *windows.SECURITY_DESCRIPTOR, currentUser *win
 		}
 		// The descriptors returned by GetSecurityInfo and the SDDL parser are
 		// self-relative. Bound native ACE views to that owned descriptor buffer.
-		address := uintptr(unsafe.Pointer(ace))
-		if address < base || address-base > length || uintptr(unsafe.Sizeof(windows.ACE_HEADER{})) > length-(address-base) {
+		address := uintptr(unsafe.Pointer(ace)) //nolint:gosec // G103: native ACE view is checked against descriptor bounds below
+		if address < base || address-base > length || unsafe.Sizeof(windows.ACE_HEADER{}) > length-(address-base) {
 			return ErrUnsafePath
 		}
 		size := int(ace.Header.AceSize)
@@ -67,12 +68,12 @@ func validateWindowsDescriptor(sd *windows.SECURITY_DESCRIPTOR, currentUser *win
 			if size < offset+8 {
 				return ErrUnsafePath
 			}
-			data := unsafe.Slice((*byte)(unsafe.Pointer(ace)), size)
+			data := unsafe.Slice((*byte)(unsafe.Pointer(ace)), size) //nolint:gosec // G103: full ACE span bounded above
 			sidLength := 8 + 4*int(data[offset+1])
 			if sidLength > size-offset {
 				return ErrUnsafePath
 			}
-			sid := (*windows.SID)(unsafe.Pointer(&data[offset]))
+			sid := (*windows.SID)(unsafe.Pointer(&data[offset])) //nolint:gosec // G103: SID header and encoded length bounded above
 			if !sid.IsValid() || !trustedWindowsPrincipal(sid, currentUser) {
 				return ErrUnsafePath
 			}

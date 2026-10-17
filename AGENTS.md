@@ -20,8 +20,8 @@ credkit (`github.com/albertocavalcante/credkit`) is a shared Go library of crede
 
 ### Language and Dependencies
 - Go 1.26; module path `github.com/albertocavalcante/credkit`
-- **Stdlib-only** — the only external dependency is `golang.org/x/term` for masked terminal input
-- Do not introduce other external dependencies without strong justification
+- **Stdlib-first** — runtime dependencies are `golang.org/x/term` for masked terminal input and `golang.org/x/sys/windows` for native ACL validation
+- Do not introduce additional external dependencies without strong justification
 
 ### Error Handling
 - Use `errors.New(...)` for static error strings (not `fmt.Errorf` with no `%w`)
@@ -40,7 +40,7 @@ credkit (`github.com/albertocavalcante/credkit`) is a shared Go library of crede
 Imports must be grouped in this order (goimports-compatible):
 1. Standard library
 2. credkit internal packages (`github.com/albertocavalcante/credkit/...`)
-3. External dependencies (currently only `golang.org/x/term`)
+3. External dependencies (`golang.org/x/term` and `golang.org/x/sys/windows`)
 
 ## Adding a New Package
 
