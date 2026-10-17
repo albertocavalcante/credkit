@@ -189,3 +189,8 @@ Audit appends reject symlinks/nonregular files and repair overly broad file mode
 `token.Ledger.FindByID` now matches provider-native IDs exactly and rejects empty
 IDs. Use `FindByName` for the former display-name fallback. This prevents a
 name collision from selecting the wrong token.
+
+Profile and session resolution treat only missing files as absent; failed reads
+and corrupt cache contents now return errors. Session files include precise
+`expires_at` timestamps while old `ttl_seconds` files remain readable. Positive
+fractional TTLs retain their precision; negative TTLs expire immediately.
