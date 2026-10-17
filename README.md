@@ -185,3 +185,7 @@ and owner-only permissions; read/remove paths preserve owner read-only intent.
 The absolute-path store helpers trust their immediate parent. Call the `*At`
 functions with an explicit application root to constrain descendant traversal.
 Audit appends reject symlinks/nonregular files and repair overly broad file modes.
+
+`token.Ledger.FindByID` now matches provider-native IDs exactly and rejects empty
+IDs. Use `FindByName` for the former display-name fallback. This prevents a
+name collision from selecting the wrong token.

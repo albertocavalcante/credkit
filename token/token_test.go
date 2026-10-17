@@ -274,8 +274,8 @@ func TestFindByID(t *testing.T) {
 		t.Fatalf("name = %q", m.Name)
 	}
 
-	// Find by name (fallback).
-	m, err = l.FindByID("a", "tok-2")
+	// Find by name explicitly; display names are not provider-native IDs.
+	m, err = l.FindByName("a", "tok-2")
 	if err != nil {
 		t.Fatal(err)
 	}
