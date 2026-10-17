@@ -21,7 +21,7 @@ credkit provides the building blocks for multi-profile credential storage, resol
 | [`token`](token/) | Token ledger for expiry monitoring and rotation planning |
 | [`audit`](audit/) | Append-only JSON-lines audit log for credential operations |
 | [`oauth`](oauth/) | OAuth authorization-code, PKCE, callback, and refresh primitives |
-| [`sts`](sts/) | STS Provider interface, atomic token rotation, health checks |
+| [`sts`](sts/) | STS Provider interface, recoverable token rotation, health checks |
 
 ## Install
 
@@ -129,7 +129,7 @@ func (p *MyProvider) Revoke(ctx context.Context, tokenID string) error { ... }
 func (p *MyProvider) List(ctx context.Context) ([]*sts.Token, error) { ... }
 func (p *MyProvider) Validate(ctx context.Context, tokenValue string) error { ... }
 
-// Atomic rotation: issue new → validate → revoke old
+// Recoverable rotation: issue new → validate → record → revoke old
 result, _ := sts.Rotate(ctx, provider, "old-token-id", &sts.IssueRequest{
     Name:  "rotated-token",
     Scope: map[string]string{"project": "myapp"},
@@ -165,3 +165,10 @@ Use `AuthCodeURLChecked` to receive invalid-configuration errors. Configure
 `CallbackOptions.ExpectedState` to reject unrelated callbacks before consuming
 the pending login; error callbacks preserve state too. Without that option,
 the application must verify state on successful and error redirects.
+
+`sts.Rotate` returns partial progress after issuance even when later work fails.
+Inspect the returned replacement and progress flags before retrying; rollback,
+ledger and audit failures are reported. A configured ledger records the validated
+replacement before old-token revocation. Cleanup after failed validation uses a
+fresh context with a five-second timeout. These remote and local steps are not
+an atomic transaction.

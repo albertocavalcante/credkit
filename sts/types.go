@@ -22,10 +22,16 @@ type Token struct {
 	ExpiresAt *time.Time        // When the token expires (nil = never).
 }
 
-// RotateResult holds the outcome of an atomic rotation.
+// RotateResult holds observed progress, including recovery state on failure.
 type RotateResult struct {
-	Old *Token // The revoked token (Value is empty).
-	New *Token // The newly issued token.
+	Old              *Token // The old token identifier (Value is empty); see OldRevoked.
+	New              *Token // The newly issued token, returned even on later failures.
+	NewValidated     bool
+	NewRevoked       bool
+	OldRevoked       bool
+	LedgerRecorded   bool
+	OldLedgerRemoved bool
+	AuditLogged      bool
 }
 
 // HealthReport summarizes the validation state of tracked tokens.
