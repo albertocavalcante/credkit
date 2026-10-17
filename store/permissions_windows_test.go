@@ -135,6 +135,13 @@ func TestWindowsNullDACLIsUnsafe(t *testing.T) {
 	if err := store.WriteSecureAt(root, "secret", []byte("synthetic")); err != nil {
 		t.Fatal(err)
 	}
+	privateDACL := windowsPrivateDACL(t)
+	t.Cleanup(func() {
+		// Windows Server can remove inherited child grants when the parent
+		// becomes a null DACL. Restore both objects before TempDir cleanup.
+		windowsSetDACL(t, root, privateDACL)
+		windowsSetDACL(t, filepath.Join(root, "secret"), privateDACL)
+	})
 	if err := windows.SetNamedSecurityInfo(root, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION, nil, nil, nil, nil); err != nil {
 		t.Fatal(err)
 	}
