@@ -3,7 +3,7 @@
 // The ledger enables expiry monitoring, rotation planning, and cross-tool visibility.
 // Tokens are stored in a JSON file, one entry per issued token.
 //
-// Note: the mutex protects against concurrent access within a single process.
+// Ledger transactions are serialized across instances within a single process.
 // Cross-process coordination requires external locking (e.g., file locks).
 package token
 
@@ -44,8 +44,12 @@ func (m *Metadata) ExpiresWithin(d time.Duration) bool {
 // Ledger tracks issued tokens in a JSON file.
 type Ledger struct {
 	path string
-	mu   sync.Mutex
 }
+
+// processMu protects complete read-modify-write transactions, including those
+// from independent Ledger instances or aliases of the same file. Serializing
+// unrelated ledgers avoids an unbounded path registry and path-alias ambiguity.
+var processMu sync.Mutex
 
 // NewLedger creates a ledger backed by the given file path.
 func NewLedger(path string) *Ledger {
@@ -54,8 +58,8 @@ func NewLedger(path string) *Ledger {
 
 // Record adds a token to the ledger.
 func (l *Ledger) Record(m *Metadata) error {
-	l.mu.Lock()
-	defer l.mu.Unlock()
+	processMu.Lock()
+	defer processMu.Unlock()
 
 	entries, err := l.loadLocked()
 	if err != nil {
@@ -68,8 +72,8 @@ func (l *Ledger) Record(m *Metadata) error {
 // List returns all tokens, optionally filtered by provider.
 // Pass an empty provider to list all tokens.
 func (l *Ledger) List(provider string) ([]Metadata, error) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
+	processMu.Lock()
+	defer processMu.Unlock()
 
 	entries, err := l.loadLocked()
 	if err != nil {
@@ -92,8 +96,8 @@ func (l *Ledger) List(provider string) ([]Metadata, error) {
 // Expiring returns tokens that expire within the given duration.
 // Already-expired tokens are included. Tokens without an expiry are excluded.
 func (l *Ledger) Expiring(within time.Duration) ([]Metadata, error) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
+	processMu.Lock()
+	defer processMu.Unlock()
 
 	entries, err := l.loadLocked()
 	if err != nil {
@@ -125,8 +129,8 @@ func (l *Ledger) RemoveByID(provider, id string) error {
 }
 
 func (l *Ledger) remove(provider string, matches func(Metadata) bool) error {
-	l.mu.Lock()
-	defer l.mu.Unlock()
+	processMu.Lock()
+	defer processMu.Unlock()
 
 	entries, err := l.loadLocked()
 	if err != nil {
@@ -145,8 +149,8 @@ func (l *Ledger) remove(provider string, matches func(Metadata) bool) error {
 
 // Cleanup removes expired tokens and tokens older than the given age from the ledger.
 func (l *Ledger) Cleanup(olderThan time.Duration) (int, error) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
+	processMu.Lock()
+	defer processMu.Unlock()
 
 	entries, err := l.loadLocked()
 	if err != nil {
@@ -192,8 +196,8 @@ func (l *Ledger) FindByName(provider, name string) (*Metadata, error) {
 }
 
 func (l *Ledger) find(provider, identity string, matches func(Metadata) bool) (*Metadata, error) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
+	processMu.Lock()
+	defer processMu.Unlock()
 	entries, err := l.loadLocked()
 	if err != nil {
 		return nil, err
