@@ -86,7 +86,7 @@ func (m *Manager) Load(name string) (*Profile, error) {
 	path := filepath.Join("profiles", name+".json")
 	data, err := store.ReadSecureAt(m.configDir, path)
 	if err != nil {
-		return nil, fmt.Errorf("profile not found: %s", name)
+		return nil, fmt.Errorf("load profile %s: %w", name, err)
 	}
 
 	var p Profile
@@ -121,6 +121,10 @@ func (m *Manager) Delete(name string) error {
 	if err := ValidateName(name); err != nil {
 		return err
 	}
+	active, err := m.Active()
+	if err != nil {
+		return fmt.Errorf("read active profile before deletion: %w", err)
+	}
 	profilePath := filepath.Join("profiles", name+".json")
 	credPath := filepath.Join("credentials", name)
 
@@ -131,9 +135,10 @@ func (m *Manager) Delete(name string) error {
 		return fmt.Errorf("remove credentials: %w", err)
 	}
 
-	active, _ := m.Active()
 	if active == name {
-		_ = m.SetActive("")
+		if err := m.SetActive(""); err != nil {
+			return fmt.Errorf("clear active profile: %w", err)
+		}
 	}
 	return nil
 }
@@ -142,8 +147,11 @@ func (m *Manager) Delete(name string) error {
 // Returns DefaultName if no active profile is set.
 func (m *Manager) Active() (string, error) {
 	data, err := store.ReadSecureAt(m.configDir, "active-profile")
-	if err != nil {
+	if errors.Is(err, fs.ErrNotExist) {
 		return DefaultName, nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("read active profile: %w", err)
 	}
 	// Remove the line ending written by SetActive, preserving name whitespace
 	// so invalid persisted names cannot silently select a different profile.
