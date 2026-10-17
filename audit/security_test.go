@@ -1,8 +1,11 @@
 package audit_test
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
+	"syscall"
 	"testing"
 	"time"
 
@@ -10,6 +13,9 @@ import (
 )
 
 func TestLogRepairsExistingFilePermissions(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX mode repair; Windows append ACLs are checked by the native store suite")
+	}
 	path := filepath.Join(t.TempDir(), "audit.log")
 	if err := os.WriteFile(path, nil, 0644); err != nil {
 		t.Fatal(err)
@@ -30,25 +36,32 @@ func TestLogRepairsExistingFilePermissions(t *testing.T) {
 }
 
 func TestLogRejectsSymlinkAndNonregularTargets(t *testing.T) {
-	dir := t.TempDir()
-	target := filepath.Join(dir, "target")
-	link := filepath.Join(dir, "audit.log")
-	if err := os.WriteFile(target, []byte("untouched"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink(target, link); err != nil {
-		t.Fatal(err)
-	}
-	if err := audit.NewLogger(link).Log(audit.Entry{Action: "login"}); err == nil {
-		t.Fatal("followed audit symlink")
-	}
-	got, err := os.ReadFile(target)
-	if err != nil || string(got) != "untouched" {
-		t.Fatalf("target changed: %q %v", got, err)
-	}
-	if err := audit.NewLogger(dir).Log(audit.Entry{Action: "login"}); err == nil {
-		t.Fatal("accepted directory as log")
-	}
+	t.Run("symlink", func(t *testing.T) {
+		dir := t.TempDir()
+		target := filepath.Join(dir, "target")
+		link := filepath.Join(dir, "audit.log")
+		if err := os.WriteFile(target, []byte("untouched"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(target, link); err != nil {
+			if runtime.GOOS == "windows" && errors.Is(err, syscall.Errno(1314)) {
+				t.Skipf("Windows symlink fixture requires privilege: %v", err)
+			}
+			t.Fatal(err)
+		}
+		if err := audit.NewLogger(link).Log(audit.Entry{Action: "login"}); err == nil {
+			t.Fatal("followed audit symlink")
+		}
+		got, err := os.ReadFile(target)
+		if err != nil || string(got) != "untouched" {
+			t.Fatalf("target changed: %q %v", got, err)
+		}
+	})
+	t.Run("directory", func(t *testing.T) {
+		if err := audit.NewLogger(t.TempDir()).Log(audit.Entry{Action: "login"}); err == nil {
+			t.Fatal("accepted directory as log")
+		}
+	})
 }
 
 func TestConcurrentLogCreationDoesNotLoseEntries(t *testing.T) {

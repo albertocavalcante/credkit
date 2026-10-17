@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -80,8 +81,15 @@ func TestTerminatedReplacementWriterPreservesCompleteCredential(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !info.Mode().IsRegular() || info.Mode().Perm() != store.FilePerm {
+		if !info.Mode().IsRegular() || (runtime.GOOS != "windows" && info.Mode().Perm() != store.FilePerm) {
 			t.Fatalf("termination left an unsafe storage entry: %s %v", entry.Name(), info.Mode())
+		}
+	}
+	if runtime.GOOS == "windows" {
+		for _, entry := range entries {
+			if _, err := store.ReadSecureAt(root, entry.Name()); err != nil {
+				t.Fatalf("termination left an unsafe Windows storage ACL: %v", err)
+			}
 		}
 	}
 	// Abrupt termination may leave its owner-only staging file. No cleanup or

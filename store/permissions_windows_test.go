@@ -3,6 +3,7 @@ package store_test
 import (
 	"bytes"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -96,6 +97,13 @@ func TestWindowsBroadACLReadsFailWithoutMutation(t *testing.T) {
 					t.Fatalf("listing accepted broad ACL: %v", err)
 				}
 			}
+			appendFile, appendErr := store.OpenAppendSecure(filepath.Join(root, "managed/secret"))
+			if appendFile != nil {
+				_ = appendFile.Close()
+			}
+			if !errors.Is(appendErr, store.ErrUnsafePath) {
+				t.Fatalf("append accepted unsafe ACL: %v", appendErr)
+			}
 			if windowsDescriptor(t, target) != before {
 				t.Fatal("read-only access changed ACL")
 			}
@@ -178,4 +186,35 @@ func windowsDescriptor(t *testing.T, path string) string {
 		t.Fatal(err)
 	}
 	return sd.String()
+}
+
+func TestWindowsExternalReaderPreservesReplacementFailure(t *testing.T) {
+	root := windowsPrivateRoot(t)
+	old, replacement := []byte("old complete value"), []byte("new complete value")
+	if err := store.WriteSecureAt(root, "secret", old); err != nil {
+		t.Fatal(err)
+	}
+	// os.Open uses ordinary Windows sharing without FILE_SHARE_DELETE. An
+	// external reader can therefore prevent replacement even on NTFS.
+	held, err := os.Open(filepath.Join(root, "secret"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer held.Close()
+	replaceErr := store.WriteSecureAt(root, "secret", replacement)
+	got, err := store.ReadSecureAt(root, "secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if replaceErr != nil {
+		if !bytes.Equal(got, old) {
+			t.Fatal("failed replacement damaged the old credential")
+		}
+	} else if !bytes.Equal(got, replacement) {
+		t.Fatal("successful replacement did not expose the complete new value")
+	}
+	observed, err := io.ReadAll(held)
+	if err != nil || !bytes.Equal(observed, old) {
+		t.Fatalf("held reader lost its complete old value: %q %v", observed, err)
+	}
 }
