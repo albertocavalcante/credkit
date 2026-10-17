@@ -101,6 +101,8 @@ func TestKeychainStoreRealSecurity(t *testing.T) {
 
 	values := [][]byte{
 		[]byte("simple"),
+		[]byte("b64:c2VjcmV0"),
+		{0, 0xff, 0x80, 0x0a},
 		[]byte(`{"refresh_token":"1//0abc-_/+=","email":"x@y.z","q":"\"quoted\" \\ back"}`),
 		[]byte("multi\nline\ttab ünïcode ✓"),
 		[]byte("-w looks-like-a-flag"),
@@ -142,6 +144,14 @@ func TestKeychainHelperProcess(t *testing.T) {
 		os.Exit(2)
 	}
 	args := os.Args[separator+1:]
+	if len(args) > 0 && args[0] == "find-generic-password" && !slices.Contains(args, "-w") && mode != "put" && mode != "put-silent-failure" {
+		kind := encodedKind
+		if strings.HasPrefix(mode, "get-legacy") {
+			kind = "application password"
+		}
+		_, _ = fmt.Fprintf(os.Stdout, "    \"desc\"<blob>=\"%s\"\n", kind)
+		os.Exit(0)
+	}
 	for _, arg := range args {
 		if strings.Contains(arg, helperSecret) || strings.Contains(arg, helperEncoded) {
 			os.Exit(3)
@@ -156,7 +166,7 @@ func TestKeychainHelperProcess(t *testing.T) {
 		switch args[0] {
 		case "-i":
 			input, err := io.ReadAll(os.Stdin)
-			want := `add-generic-password -a "client-secret" -s "meliboot" -U -w ` + helperEncoded + "\n"
+			want := `add-generic-password -a "client-secret" -s "meliboot" -D ` + encodedKind + ` -U -w ` + helperEncoded + "\n"
 			if err != nil || string(input) != want {
 				os.Exit(5)
 			}
@@ -170,12 +180,22 @@ func TestKeychainHelperProcess(t *testing.T) {
 			if _, err := os.Stat(os.Getenv("CREDKIT_KEYCHAIN_STATE")); err != nil {
 				os.Exit(44)
 			}
-			_, _ = os.Stdout.WriteString(helperEncoded + "\n")
+			if slices.Contains(args, "-w") {
+				_, _ = os.Stdout.WriteString(helperEncoded + "\n")
+			} else {
+				_, _ = fmt.Fprintf(os.Stdout, "    \"desc\"<blob>=\"%s\"\n", encodedKind)
+			}
 		default:
 			os.Exit(4)
 		}
 	case "get":
 		_, _ = os.Stdout.WriteString(helperEncoded + "\n")
+	case "get-corrupt-marked", "get-legacy-corrupt":
+		_, _ = os.Stdout.WriteString("b64:!!!\n")
+	case "get-unprefixed-marked":
+		_, _ = os.Stdout.WriteString("literal\n")
+	case "get-legacy-prefix":
+		_, _ = os.Stdout.WriteString("b64:c2VjcmV0\n")
 	case "get-legacy":
 		_, _ = os.Stdout.WriteString(helperSecret + "\n")
 	case "delete":
@@ -186,4 +206,96 @@ func TestKeychainHelperProcess(t *testing.T) {
 		os.Exit(7)
 	}
 	os.Exit(0)
+}
+
+func TestUnmarkedPrefixRequiresExplicitEncodingPolicy(t *testing.T) {
+	t.Setenv("CREDKIT_KEYCHAIN_HELPER", "get-legacy-prefix")
+	cases := []struct {
+		name    string
+		policy  LegacyEncoding
+		want    string
+		wantErr bool
+	}{
+		{"ambiguous", LegacyRejectAmbiguous, "", true},
+		{"literal", LegacyPlain, "b64:c2VjcmV0", false},
+		{"encoded", LegacyBase64, "secret", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			backend := KeychainStore{ExecutablePath: os.Args[0], CommandContext: keychainHelperCommand, LegacyEncoding: tc.policy}
+			got, err := backend.Get(t.Context(), Key{Service: "test", Account: "legacy"})
+			if tc.wantErr {
+				if !errors.Is(err, ErrAmbiguousEncoding) {
+					t.Fatalf("got %q %v, want ambiguity error", got, err)
+				}
+			} else if err != nil || string(got) != tc.want {
+				t.Fatalf("got %q %v, want %q", got, err, tc.want)
+			}
+		})
+	}
+}
+
+func TestKeychainCorruptMarkedValuesFail(t *testing.T) {
+	for _, mode := range []string{"get-corrupt-marked", "get-unprefixed-marked", "get-legacy-corrupt"} {
+		t.Setenv("CREDKIT_KEYCHAIN_HELPER", mode)
+		s := KeychainStore{ExecutablePath: os.Args[0], CommandContext: keychainHelperCommand, LegacyEncoding: LegacyBase64}
+		if _, err := s.Get(t.Context(), Key{Service: "test", Account: "corrupt"}); err == nil {
+			t.Errorf("accepted mode %s", mode)
+		}
+	}
+}
+
+func TestKeychainLegacyMigrationRealSecurity(t *testing.T) {
+	if runtime.GOOS != "darwin" || os.Getenv("CREDKIT_SKIP_REAL_KEYCHAIN") != "" {
+		t.Skip("native Keychain test unavailable or explicitly skipped")
+	}
+	for _, tc := range []struct {
+		name   string
+		policy LegacyEncoding
+		want   string
+	}{
+		{"literal", LegacyPlain, "b64:c2VjcmV0"}, {"encoded", LegacyBase64, "secret"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			key := Key{Service: fmt.Sprintf("credkit-legacy-test-%d", os.Getpid()), Account: tc.name}
+			backend := KeychainStore{}
+			t.Cleanup(func() { _ = backend.Delete(context.Background(), key) })
+			input := "add-generic-password -a " + quoteArg(key.Account) + " -s " + quoteArg(key.Service) + " -U -w b64:c2VjcmV0\n"
+			if _, err := backend.run(t.Context(), []byte(input), "-i"); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := backend.Get(t.Context(), key); !errors.Is(err, ErrAmbiguousEncoding) {
+				t.Fatalf("unmarked prefix should be ambiguous: %v", err)
+			}
+			legacy := KeychainStore{LegacyEncoding: tc.policy}
+			got, err := legacy.Get(t.Context(), key)
+			if err != nil || string(got) != tc.want {
+				t.Fatalf("legacy decode=%q %v", got, err)
+			}
+			if err := backend.Put(t.Context(), key, got); err != nil {
+				t.Fatal(err)
+			}
+			got, err = backend.Get(t.Context(), key)
+			if err != nil || string(got) != tc.want {
+				t.Fatalf("migrated decode=%q %v", got, err)
+			}
+		})
+	}
+}
+
+func TestEncodedKindUsesMetadataRatherThanPasswordPrefix(t *testing.T) {
+	cases := []struct {
+		metadata string
+		want     bool
+	}{
+		{`    "desc"<blob>="credkit.base64.v1"`, true},
+		{`    "desc"<blob>="application password"`, false},
+		{`    "acct"<blob>="credkit.base64.v1"`, false},
+		{`b64:c2VjcmV0`, false},
+	}
+	for _, tc := range cases {
+		if got := hasEncodedKind([]byte(tc.metadata)); got != tc.want {
+			t.Errorf("metadata %q -> %v, want %v", tc.metadata, got, tc.want)
+		}
+	}
 }

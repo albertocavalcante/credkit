@@ -194,3 +194,10 @@ Profile and session resolution treat only missing files as absent; failed reads
 and corrupt cache contents now return errors. Session files include precise
 `expires_at` timestamps while old `ttl_seconds` files remain readable. Positive
 fractional TTLs retain their precision; negative TTLs expire immediately.
+
+Keychain writes now mark base64 encoding in the item's kind metadata. An
+unmarked legacy value beginning with `b64:` returns `secret.ErrAmbiguousEncoding`
+by default, because its bytes could be either literal or encoded. For migration,
+set `KeychainStore.LegacyEncoding` to `secret.LegacyPlain` or `secret.LegacyBase64`
+according to the known old format, read the value, then save it with `Put`. New
+marked entries decode consistently regardless of that migration policy.
