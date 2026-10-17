@@ -140,7 +140,7 @@ result, _ := sts.Rotate(ctx, provider, "old-token-id", &sts.IssueRequest{
     sts.WithAudit(auditLogger, "my-cli"), // log to audit trail
 )
 
-// Health check: validate all tracked tokens
+// Health metadata: classify expiry; unknown tokens have not been validated
 report, _ := sts.CheckHealth(ctx, provider, ledger, 7*24*time.Hour)
 total, valid, invalid, expired, expiringSoon := report.Counts()
 ```
@@ -172,3 +172,8 @@ ledger and audit failures are reported. A configured ledger records the validate
 replacement before old-token revocation. Cleanup after failed validation uses a
 fresh context with a five-second timeout. These remote and local steps are not
 an atomic transaction.
+
+`sts.CheckHealth` reports ledger metadata rather than provider validation.
+Tokens without an expiry warning are in `report.Unknown`, not `report.Valid`.
+`Counts` retains its five return values; its total includes Unknown entries,
+whose count is available as `len(report.Unknown)`.

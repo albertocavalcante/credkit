@@ -37,6 +37,7 @@ type RotateResult struct {
 // HealthReport summarizes the validation state of tracked tokens.
 type HealthReport struct {
 	Provider     string        // Provider name.
+	Unknown      []TokenStatus // Metadata-only entries with no observed validity.
 	Valid        []TokenStatus // Tokens that validated successfully.
 	Invalid      []TokenStatus // Tokens that failed validation.
 	Expired      []TokenStatus // Tokens past their ExpiresAt.
@@ -51,11 +52,12 @@ type TokenStatus struct {
 }
 
 // Counts returns total, valid, invalid, expired, expiring-soon counts.
+// Total also includes Unknown; use len(r.Unknown) for that separate count.
 func (r *HealthReport) Counts() (total, valid, invalid, expired, expiringSoon int) {
 	valid = len(r.Valid)
 	invalid = len(r.Invalid)
 	expired = len(r.Expired)
 	expiringSoon = len(r.ExpiringSoon)
-	total = valid + invalid + expired + expiringSoon
+	total = valid + invalid + expired + expiringSoon + len(r.Unknown)
 	return
 }

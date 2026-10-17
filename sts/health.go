@@ -7,10 +7,14 @@ import (
 	"github.com/albertocavalcante/credkit/token"
 )
 
-// CheckHealth validates all tracked tokens for a provider and returns a report.
-// It reads token metadata from the ledger and validates each against the provider.
+// CheckHealth classifies tracked token expiry metadata for a provider.
+// Ledger entries contain no secret values, so this function cannot establish
+// remote validity. Nonexpiring entries are reported as Unknown, never Valid.
 // The expiringWithin parameter controls the threshold for "expiring soon" warnings.
 func CheckHealth(ctx context.Context, p Provider, ledger *token.Ledger, expiringWithin time.Duration) (*HealthReport, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	providerName := p.Name()
 
 	entries, err := ledger.List(providerName)
@@ -21,6 +25,9 @@ func CheckHealth(ctx context.Context, p Provider, ledger *token.Ledger, expiring
 	report := &HealthReport{Provider: providerName}
 
 	for _, e := range entries {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		status := TokenStatus{Name: e.Name, ID: e.ID}
 
 		// Check expiry from ledger metadata first.
@@ -37,10 +44,8 @@ func CheckHealth(ctx context.Context, p Provider, ledger *token.Ledger, expiring
 			continue
 		}
 
-		// Validate against the provider (skip if no token value in ledger — we can't validate without it).
-		// Tokens in the ledger typically don't have their value stored (security).
-		// If the provider supports listing + validating by ID, use List instead.
-		report.Valid = append(report.Valid, status)
+		status.Error = "not validated"
+		report.Unknown = append(report.Unknown, status)
 	}
 
 	return report, nil
