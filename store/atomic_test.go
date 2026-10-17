@@ -2,9 +2,8 @@ package store_test
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/albertocavalcante/credkit/store"
@@ -22,21 +21,28 @@ func TestAtomicReplacementReadersObserveCompleteValues(t *testing.T) {
 	for range 4 {
 		go func() {
 			<-start
-			for {
-				data, err := os.ReadFile(filepath.Join(root, "secret"))
+			readValue := func() error {
+				data, err := store.ReadSecureAt(root, "secret")
 				if err != nil {
-					done <- err
-					return
+					return err
 				}
 				if !bytes.Equal(data, values[0]) && !bytes.Equal(data, values[1]) {
-					done <- fmt.Errorf("reader observed incomplete replacement (%d bytes)", len(data))
-					return
+					return fmt.Errorf("reader observed incomplete replacement (%d bytes)", len(data))
 				}
+				return nil
+			}
+			for {
 				select {
 				case <-stop:
-					done <- nil
+					// Writers have stopped. Every reader must complete a clean
+					// read; persistent unsafe state must fail rather than spin.
+					done <- readValue()
 					return
 				default:
+				}
+				if err := readValue(); err != nil && !errors.Is(err, store.ErrUnsafePath) {
+					done <- err
+					return
 				}
 			}
 		}()

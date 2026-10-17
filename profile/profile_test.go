@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -313,6 +314,7 @@ func TestValidateName(t *testing.T) {
 func TestNewManager_Error(t *testing.T) {
 	// Unset HOME and XDG to trigger error.
 	t.Setenv("HOME", "")
+	t.Setenv("USERPROFILE", "")
 	t.Setenv("XDG_CONFIG_HOME", "")
 	_, err := profile.NewManager("test-app")
 	if err == nil {
@@ -340,8 +342,19 @@ func TestDelete_RemoveError(t *testing.T) {
 
 	// Make profiles dir read-only to cause Remove error.
 	profilesDir := filepath.Join(dir, "profiles")
-	os.Chmod(profilesDir, 0o500)
-	t.Cleanup(func() { os.Chmod(profilesDir, 0o700) })
+	if runtime.GOOS == "windows" {
+		// A regular-file operation cannot remove a directory as profile data.
+		path := filepath.Join(profilesDir, "victim.json")
+		if err := os.Remove(path); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Mkdir(path, 0700); err != nil {
+			t.Fatal(err)
+		}
+	} else {
+		os.Chmod(profilesDir, 0o500)
+		t.Cleanup(func() { os.Chmod(profilesDir, 0o700) })
+	}
 
 	err := m.Delete("victim")
 	if err == nil {

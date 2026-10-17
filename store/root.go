@@ -75,19 +75,7 @@ func secureDirectory(r *os.Root, expected os.FileInfo, create bool) error {
 	if !info.IsDir() || (expected != nil && !os.SameFile(info, expected)) {
 		return ErrUnsafePath
 	}
-	mode := info.Mode().Perm() & DirPerm
-	if create {
-		mode = DirPerm
-	}
-	if mode != info.Mode().Perm() {
-		if !create {
-			return ErrUnsafePath
-		}
-		if err := f.Chmod(mode); err != nil {
-			return fmt.Errorf("secure directory handle: %w", err)
-		}
-	}
-	return nil
+	return securePermissions(f, info, DirPerm, create)
 }
 
 func openParent(rootDir, name string, create bool) (*os.Root, string, error) {
@@ -109,8 +97,11 @@ func regularInfo(r *os.Root, name string) (os.FileInfo, error) {
 	return info, nil
 }
 
-// WriteSecureAt atomically replaces a regular file beneath a trusted root.
-// name must be relative. Managed descendant directories cannot be symlinks.
+// WriteSecureAt replaces a regular file beneath a trusted root using a staged
+// file and rename. name must be relative; managed descendants cannot be symlinks.
+// Replacement atomicity depends on the operating system and filesystem. Windows
+// handles opened without delete sharing can prevent replacement; failure leaves
+// the previous destination intact. Windows ACLs must already be private.
 func WriteSecureAt(rootDir, name string, data []byte) error {
 	r, base, err := openParent(rootDir, name, true)
 	if err != nil {
@@ -127,7 +118,11 @@ func WriteSecureAt(rootDir, name string, data []byte) error {
 	}
 	defer func() { _ = r.Remove(temporary) }()
 	defer func() { _ = f.Close() }()
-	if err := f.Chmod(FilePerm); err != nil {
+	info, err := f.Stat()
+	if err != nil {
+		return fmt.Errorf("inspect temporary credential file: %w", err)
+	}
+	if err := securePermissions(f, info, FilePerm, true); err != nil {
 		return fmt.Errorf("secure temporary credential file: %w", err)
 	}
 	if _, err := f.Write(data); err != nil {
@@ -172,27 +167,17 @@ func openManagedFile(r *os.Root, name string, flags int, create bool) (*os.File,
 			_ = f.Close()
 			return nil, ErrUnsafePath
 		}
-		mode := opened.Mode().Perm() & FilePerm
-		if flags&(os.O_WRONLY|os.O_RDWR) != 0 {
-			mode = FilePerm
-		}
-		if mode != opened.Mode().Perm() {
-			if flags&(os.O_WRONLY|os.O_RDWR) == 0 {
-				_ = f.Close()
-				return nil, ErrUnsafePath
-			}
-			if err := f.Chmod(mode); err != nil {
-				_ = f.Close()
-				return nil, err
-			}
+		if err := securePermissions(f, opened, FilePerm, flags&(os.O_WRONLY|os.O_RDWR) != 0); err != nil {
+			_ = f.Close()
+			return nil, err
 		}
 		return f, nil
 	}
 	return nil, fmt.Errorf("secure file changed during creation: %w", ErrUnsafePath)
 }
 
-// ReadSecureAt reads an owner-only regular file beneath the trusted root.
-// Unsafe permissions return ErrUnsafePath; reads never repair permissions.
+// ReadSecureAt reads a private regular file beneath the trusted root.
+// Unsafe POSIX modes or Windows ACLs return ErrUnsafePath; reads never repair them.
 func ReadSecureAt(rootDir, name string) ([]byte, error) {
 	r, base, err := openParent(rootDir, name, false)
 	if err != nil {
@@ -212,7 +197,7 @@ func ReadSecureAt(rootDir, name string) ([]byte, error) {
 }
 
 // RemoveSecureAt removes a regular file beneath the trusted root.
-// Parent directories must already be owner-only; removal never repairs modes.
+// Parent directories must already be private; removal never repairs permissions.
 func RemoveSecureAt(rootDir, name string) error {
 	r, base, err := openParent(rootDir, name, false)
 	if err != nil {
@@ -226,7 +211,7 @@ func RemoveSecureAt(rootDir, name string) error {
 }
 
 // ReadDirSecureAt lists a real managed directory in filename order.
-// The root and managed directories must already be owner-only. Modes are unchanged.
+// The root and managed directories must already be private. Permissions are unchanged.
 func ReadDirSecureAt(rootDir, name string) ([]fs.DirEntry, error) {
 	r, err := openDirectory(rootDir, name, false)
 	if err != nil {
@@ -236,7 +221,7 @@ func ReadDirSecureAt(rootDir, name string) ([]fs.DirEntry, error) {
 	return fs.ReadDir(r.FS(), ".")
 }
 
-// ExistsSecureAt reports whether an owner-only regular file exists beneath the root.
+// ExistsSecureAt reports whether a readable private regular file exists beneath the root.
 // Unsafe paths or permissions report false without changing filesystem modes.
 func ExistsSecureAt(rootDir, name string) bool {
 	r, base, err := openParent(rootDir, name, false)
@@ -244,11 +229,14 @@ func ExistsSecureAt(rootDir, name string) bool {
 		return false
 	}
 	defer func() { _ = r.Close() }()
-	info, err := regularInfo(r, base)
-	return err == nil && info.Mode().Perm()&^FilePerm == 0
+	f, err := openManagedFile(r, base, os.O_RDONLY, false)
+	if err != nil {
+		return false
+	}
+	return f.Close() == nil
 }
 
-// OpenAppendSecure opens an owner-only regular file for append. Its parent is
+// OpenAppendSecure opens a private regular file for append. Its parent is
 // caller-trusted; existing file symlinks and nonregular targets are rejected.
 // The caller owns closing the returned file.
 func OpenAppendSecure(path string) (*os.File, error) {

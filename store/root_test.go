@@ -3,6 +3,7 @@ package store_test
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/albertocavalcante/credkit/profile"
@@ -11,9 +12,7 @@ import (
 
 func TestProfileCredentialDirectoryCannotEscapeRoot(t *testing.T) {
 	root, outside := t.TempDir(), t.TempDir()
-	if err := os.Symlink(outside, filepath.Join(root, "credentials")); err != nil {
-		t.Fatal(err)
-	}
+	symlinkOrSkip(t, outside, filepath.Join(root, "credentials"))
 	err := profile.NewManagerWithDir(root).SaveCredential("work", []byte("synthetic"))
 	if err == nil {
 		t.Fatal("credential escaped configured application root")
@@ -28,9 +27,7 @@ func TestProfileRejectsInternalDirectorySymlink(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(root, "other"), 0700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink("other", filepath.Join(root, "credentials")); err != nil {
-		t.Fatal(err)
-	}
+	symlinkOrSkip(t, "other", filepath.Join(root, "credentials"))
 	if err := profile.NewManagerWithDir(root).SaveCredential("work", nil); err == nil {
 		t.Fatal("accepted descendant directory symlink")
 	}
@@ -39,9 +36,7 @@ func TestProfileRejectsInternalDirectorySymlink(t *testing.T) {
 func TestProfileAllowsIntentionalRootSymlink(t *testing.T) {
 	root, outside := t.TempDir(), t.TempDir()
 	link := filepath.Join(root, "configured-root")
-	if err := os.Symlink(outside, link); err != nil {
-		t.Fatal(err)
-	}
+	symlinkOrSkip(t, outside, link)
 	if err := profile.NewManagerWithDir(link).SaveCredential("work", []byte("synthetic")); err != nil {
 		t.Fatal(err)
 	}
@@ -67,12 +62,13 @@ func TestSecureWriteStillAtomicallyReplacesRegularFile(t *testing.T) {
 
 func TestProfileReadCannotFollowCredentialDirectorySymlink(t *testing.T) {
 	root, outside := t.TempDir(), t.TempDir()
+	if err := store.EnsureDir(root); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(outside, "work"), []byte("outside"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(outside, filepath.Join(root, "credentials")); err != nil {
-		t.Fatal(err)
-	}
+	symlinkOrSkip(t, outside, filepath.Join(root, "credentials"))
 	if _, err := profile.NewManagerWithDir(root).LoadCredential("work"); err == nil {
 		t.Fatal("read credential outside configured root")
 	}
@@ -85,6 +81,9 @@ func TestProfileReadCannotFollowCredentialDirectorySymlink(t *testing.T) {
 }
 
 func TestProfileSecuresExistingRoot(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX mode repair; Windows unsafe ACL boundaries are rejected")
+	}
 	root := t.TempDir()
 	if err := os.Chmod(root, 0777); err != nil {
 		t.Fatal(err)
@@ -102,36 +101,40 @@ func TestProfileSecuresExistingRoot(t *testing.T) {
 }
 
 func TestRootedOperationsRejectTraversalAndFileSymlinks(t *testing.T) {
-	root := t.TempDir()
-	for _, name := range []string{"../outside", "/outside"} {
-		if err := store.WriteSecureAt(root, name, nil); err == nil {
-			t.Errorf("write accepted %q", name)
+	t.Run("traversal", func(t *testing.T) {
+		root := t.TempDir()
+		for _, name := range []string{"../outside", "/outside"} {
+			if err := store.WriteSecureAt(root, name, nil); err == nil {
+				t.Errorf("write accepted %q", name)
+			}
+			if _, err := store.ReadSecureAt(root, name); err == nil {
+				t.Errorf("read accepted %q", name)
+			}
+			if err := store.RemoveSecureAt(root, name); err == nil {
+				t.Errorf("remove accepted %q", name)
+			}
 		}
-		if _, err := store.ReadSecureAt(root, name); err == nil {
-			t.Errorf("read accepted %q", name)
+	})
+	t.Run("file symlink", func(t *testing.T) {
+		root := t.TempDir()
+
+		if err := store.WriteSecureAt(root, "target", []byte("untouched")); err != nil {
+			t.Fatal(err)
 		}
-		if err := store.RemoveSecureAt(root, name); err == nil {
-			t.Errorf("remove accepted %q", name)
+		symlinkOrSkip(t, "target", filepath.Join(root, "link"))
+		if _, err := store.ReadSecureAt(root, "link"); err == nil {
+			t.Fatal("read followed file symlink")
 		}
-	}
-	if err := os.WriteFile(filepath.Join(root, "target"), []byte("untouched"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink("target", filepath.Join(root, "link")); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := store.ReadSecureAt(root, "link"); err == nil {
-		t.Fatal("read followed file symlink")
-	}
-	if err := store.WriteSecureAt(root, "link", nil); err == nil {
-		t.Fatal("write accepted file symlink")
-	}
-	if err := store.RemoveSecureAt(root, "link"); err == nil {
-		t.Fatal("remove accepted file symlink")
-	}
-	if store.ExistsSecureAt(root, "link") {
-		t.Fatal("file symlink reported safe")
-	}
+		if err := store.WriteSecureAt(root, "link", nil); err == nil {
+			t.Fatal("write accepted file symlink")
+		}
+		if err := store.RemoveSecureAt(root, "link"); err == nil {
+			t.Fatal("remove accepted file symlink")
+		}
+		if store.ExistsSecureAt(root, "link") {
+			t.Fatal("file symlink reported safe")
+		}
+	})
 }
 
 func TestConcurrentRootedWritesCreateSharedParents(t *testing.T) {

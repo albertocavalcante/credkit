@@ -3,6 +3,7 @@ package token_test
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -249,8 +250,7 @@ func TestRecord_ReadError(t *testing.T) {
 	// Make ledger file unreadable.
 	dir := privateTestDir(t)
 	path := filepath.Join(dir, "tokens.json")
-	os.WriteFile(path, []byte("[]"), 0o000)
-	t.Cleanup(func() { os.Chmod(path, 0o600) })
+	makeUnreadableLedger(t, path)
 
 	l := token.NewLedger(path)
 	err := l.Record(&token.Metadata{Provider: "a", Name: "b"})
@@ -299,8 +299,7 @@ func TestFindByID(t *testing.T) {
 func TestList_ReadError(t *testing.T) {
 	dir := privateTestDir(t)
 	path := filepath.Join(dir, "tokens.json")
-	os.WriteFile(path, []byte("[]"), 0o000)
-	t.Cleanup(func() { os.Chmod(path, 0o600) })
+	makeUnreadableLedger(t, path)
 
 	l := token.NewLedger(path)
 	_, err := l.List("")
@@ -312,8 +311,7 @@ func TestList_ReadError(t *testing.T) {
 func TestExpiring_ReadError(t *testing.T) {
 	dir := privateTestDir(t)
 	path := filepath.Join(dir, "tokens.json")
-	os.WriteFile(path, []byte("[]"), 0o000)
-	t.Cleanup(func() { os.Chmod(path, 0o600) })
+	makeUnreadableLedger(t, path)
 
 	l := token.NewLedger(path)
 	_, err := l.Expiring(time.Hour)
@@ -325,8 +323,7 @@ func TestExpiring_ReadError(t *testing.T) {
 func TestRemove_ReadError(t *testing.T) {
 	dir := privateTestDir(t)
 	path := filepath.Join(dir, "tokens.json")
-	os.WriteFile(path, []byte("[]"), 0o000)
-	t.Cleanup(func() { os.Chmod(path, 0o600) })
+	makeUnreadableLedger(t, path)
 
 	l := token.NewLedger(path)
 	err := l.Remove("a", "b")
@@ -354,4 +351,20 @@ func privateTestDir(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return dir
+}
+
+func makeUnreadableLedger(t *testing.T, path string) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		// Windows read-only attributes do not deny reads; a directory cannot
+		// be loaded as a regular ledger file on either platform.
+		if err := os.Mkdir(path, 0700); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+	if err := os.WriteFile(path, []byte("[]"), 0000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(path, 0600) })
 }

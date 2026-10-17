@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/albertocavalcante/credkit/secret"
@@ -36,7 +37,7 @@ func TestFileStoreLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := info.Mode().Perm(); got != store.FilePerm {
+	if got := info.Mode().Perm(); runtime.GOOS != "windows" && got != store.FilePerm {
 		t.Fatalf("secret file mode = %o, want %o", got, store.FilePerm)
 	}
 	if err := backend.Delete(t.Context(), key); err != nil {

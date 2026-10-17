@@ -1,9 +1,12 @@
 package token_test
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
+	"syscall"
 	"testing"
 
 	"github.com/albertocavalcante/credkit/token"
@@ -18,6 +21,9 @@ func TestIndependentLedgersPreserveConcurrentRecords(t *testing.T) {
 			if alias {
 				link := filepath.Join(t.TempDir(), "root")
 				if err := os.Symlink(root, link); err != nil {
+					if runtime.GOOS == "windows" && errors.Is(err, syscall.Errno(1314)) {
+						t.Skipf("Windows symlink fixture requires privilege: %v", err)
+					}
 					t.Fatal(err)
 				}
 				secondPath = filepath.Join(link, "new", "tokens.json")

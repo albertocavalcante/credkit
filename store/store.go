@@ -1,4 +1,10 @@
 // Package store provides secure file I/O with XDG Base Directory compliance.
+//
+// POSIX storage uses owner-only permission bits. Windows uses handle-based ACL
+// validation: owners and every access-granting principal must be the effective
+// calling user, LocalSystem or BUILTIN\Administrators. Applications must provision
+// private Windows ACLs, including child inheritance, before storing credentials;
+// this package does not repair ACLs. Reads never change permission metadata.
 package store
 
 import (
@@ -9,9 +15,9 @@ import (
 )
 
 const (
-	// DirPerm is the permission mode for directories containing sensitive data.
+	// DirPerm is the POSIX permission mode for directories containing sensitive data.
 	DirPerm = 0o700
-	// FilePerm is the permission mode for files containing sensitive data.
+	// FilePerm is the POSIX permission mode for files containing sensitive data.
 	FilePerm = 0o600
 )
 
@@ -33,7 +39,9 @@ func XDGConfigDir(appName string) (string, error) {
 	return filepath.Join(configHome, appName), nil
 }
 
-// EnsureDir creates a directory with DirPerm if it does not exist.
+// EnsureDir creates a directory when needed and checks its security boundary.
+// POSIX modes are repaired to DirPerm. Windows requires a pre-provisioned private
+// ACL and never changes it; inherited ACLs on newly created directories are checked.
 func EnsureDir(path string) error {
 	if err := os.MkdirAll(path, DirPerm); err != nil {
 		return fmt.Errorf("create directory %s: %w", path, err)
@@ -45,15 +53,16 @@ func EnsureDir(path string) error {
 	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
 		return fmt.Errorf("secure directory %s: %w", path, ErrUnsafePath)
 	}
-	if err := os.Chmod(path, DirPerm); err != nil {
+	if err := secureDirectoryPath(path, info); err != nil {
 		return fmt.Errorf("secure directory %s: %w", path, err)
 	}
 	return nil
 }
 
-// WriteSecure writes data to path with FilePerm, creating parent directories
-// with DirPerm as needed. The replacement is atomic when path and its parent
-// are on the same filesystem. The parent is caller-trusted; use WriteSecureAt
+// WriteSecure replaces path with a staged file, creating parent directories
+// as needed. POSIX storage uses FilePerm/DirPerm; Windows ACLs must already be
+// private. Replacement atomicity depends on the operating system and filesystem,
+// even within one directory. The parent is caller-trusted; use WriteSecureAt
 // when a configured application root must constrain descendant traversal.
 func WriteSecure(path string, data []byte) error {
 	dir := filepath.Dir(path)
