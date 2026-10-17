@@ -1,5 +1,7 @@
 # credkit
 
+The name **credkit** is provisional; the current module path is unchanged.
+
 [![CI](https://github.com/albertocavalcante/credkit/actions/workflows/ci.yml/badge.svg)](https://github.com/albertocavalcante/credkit/actions/workflows/ci.yml)
 [![Go](https://img.shields.io/badge/go-1.26-00ADD8?logo=go&logoColor=white)](https://go.dev)
 
@@ -18,6 +20,7 @@ credkit provides the building blocks for multi-profile credential storage, resol
 | [`session`](session/) | TTL-based session caching for vault/provider keys |
 | [`token`](token/) | Token ledger for expiry monitoring and rotation planning |
 | [`audit`](audit/) | Append-only JSON-lines audit log for credential operations |
+| [`oauth`](oauth/) | OAuth authorization-code, PKCE, callback, and refresh primitives |
 | [`sts`](sts/) | STS Provider interface, atomic token rotation, health checks |
 
 ## Install
@@ -153,3 +156,7 @@ total, valid, invalid, expired, expiringSoon := report.Counts()
 ## License
 
 MIT
+
+OAuth token requests refuse redirects and bound decompressed responses to 1 MiB.
+Successful responses require a nonempty access token. Public token JSON decoding
+replaces prior derived fields and rejects expiry arithmetic overflow.

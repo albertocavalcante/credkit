@@ -19,6 +19,19 @@ const (
 	paramRefreshToken = "refresh_token"
 )
 
+// MaxTokenResponseBytes bounds decoded token and error responses, after any
+// transparent HTTP decompression.
+const MaxTokenResponseBytes = 1 << 20
+
+var (
+	// ErrTokenRedirect is returned rather than forwarding credentials on redirects.
+	ErrTokenRedirect = errors.New("oauth: token endpoint redirects are not allowed")
+	// ErrTokenResponseTooLarge identifies token responses over MaxTokenResponseBytes.
+	ErrTokenResponseTooLarge = errors.New("oauth: token response exceeds size limit")
+	// ErrInvalidTokenResponse identifies a success response without an access token.
+	ErrInvalidTokenResponse = errors.New("oauth: token response has no access token")
+)
+
 // Config holds the OAuth 2.0 client configuration for a single provider.
 // One Config corresponds to one (client, authorization-server) pair.
 type Config struct {
@@ -30,7 +43,8 @@ type Config struct {
 	Scopes       []string
 
 	// HTTPClient is used for token requests. If nil, a client with a 30 s
-	// timeout is used.
+	// timeout is used. Token-endpoint redirects are refused using a shallow
+	// client copy; the supplied client is never modified.
 	HTTPClient *http.Client
 }
 
@@ -107,15 +121,21 @@ func (c Config) postTokenForm(ctx context.Context, form url.Values) (*Token, err
 	if client == nil {
 		client = &http.Client{Timeout: 30 * time.Second}
 	}
-	resp, err := client.Do(req)
+	requestClient := *client
+	requestClient.CheckRedirect = func(*http.Request, []*http.Request) error { return ErrTokenRedirect }
+	resp, err := requestClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("oauth: post token endpoint: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, MaxTokenResponseBytes+1))
 	if err != nil {
 		return nil, fmt.Errorf("oauth: read token response: %w", err)
+	}
+
+	if len(body) > MaxTokenResponseBytes {
+		return nil, ErrTokenResponseTooLarge
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
@@ -126,10 +146,17 @@ func (c Config) postTokenForm(ctx context.Context, form url.Values) (*Token, err
 	if err := json.Unmarshal(body, &tok); err != nil {
 		return nil, fmt.Errorf("oauth: parse token response: %w", err)
 	}
+	if tok.AccessToken == "" {
+		te := parseTokenError(resp.StatusCode, body)
+		if te.Code != "" {
+			return nil, te
+		}
+		return nil, ErrInvalidTokenResponse
+	}
 	return &tok, nil
 }
 
-func parseTokenError(status int, body []byte) error {
+func parseTokenError(status int, body []byte) *TokenError {
 	te := &TokenError{HTTPStatus: status, Body: append([]byte(nil), body...)}
 	var wire struct {
 		Error            string `json:"error"`

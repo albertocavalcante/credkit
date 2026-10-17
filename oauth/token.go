@@ -2,7 +2,9 @@ package oauth
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"math"
 	"time"
 )
 
@@ -43,7 +45,8 @@ type tokenWire struct {
 
 // UnmarshalJSON parses a standard OAuth 2.0 token response and preserves
 // any non-standard fields in Extra. Called by encoding/json automatically;
-// also used directly by Exchange/Refresh.
+// also used directly by Exchange/Refresh. Successful parsing replaces the
+// previous value, including derived expiry and Extra fields; failure leaves it intact.
 func (t *Token) UnmarshalJSON(data []byte) error {
 	var wire tokenWire
 	if err := json.Unmarshal(data, &wire); err != nil {
@@ -56,16 +59,17 @@ func (t *Token) UnmarshalJSON(data []byte) error {
 	for _, k := range []string{"access_token", paramRefreshToken, "token_type", "scope", "expires_in"} {
 		delete(all, k)
 	}
-	t.AccessToken = wire.AccessToken
-	t.RefreshToken = wire.RefreshToken
-	t.TokenType = wire.TokenType
-	t.Scope = wire.Scope
+	if wire.ExpiresIn > math.MaxInt64/int64(time.Second) {
+		return errors.New("oauth: expires_in exceeds supported duration")
+	}
+	parsed := Token{AccessToken: wire.AccessToken, RefreshToken: wire.RefreshToken, TokenType: wire.TokenType, Scope: wire.Scope}
 	if wire.ExpiresIn > 0 {
-		t.ExpiresAt = time.Now().Add(time.Duration(wire.ExpiresIn) * time.Second)
+		parsed.ExpiresAt = time.Now().Add(time.Duration(wire.ExpiresIn) * time.Second)
 	}
 	if len(all) > 0 {
-		t.Extra = all
+		parsed.Extra = all
 	}
+	*t = parsed
 	return nil
 }
 
