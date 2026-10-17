@@ -55,7 +55,7 @@ func (s FileStore) Put(ctx context.Context, key Key, value []byte) error {
 	if err != nil {
 		return err
 	}
-	if err := store.WriteSecure(path, value); err != nil {
+	if err := store.WriteSecureAt(s.Dir, filepath.Base(path), value); err != nil {
 		return fmt.Errorf("put file secret: %w", err)
 	}
 	return nil
@@ -70,7 +70,7 @@ func (s FileStore) Get(ctx context.Context, key Key) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	value, err := store.ReadSecure(path)
+	value, err := store.ReadSecureAt(s.Dir, filepath.Base(path))
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, ErrNotFound
 	}
@@ -89,7 +89,7 @@ func (s FileStore) Delete(ctx context.Context, key Key) error {
 	if err != nil {
 		return err
 	}
-	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err := store.RemoveSecureAt(s.Dir, filepath.Base(path)); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("delete file secret: %w", err)
 	}
 	return nil

@@ -177,3 +177,11 @@ an atomic transaction.
 Tokens without an expiry warning are in `report.Unknown`, not `report.Valid`.
 `Counts` retains its five return values; its total includes Unknown entries,
 whose count is available as `len(report.Unknown)`.
+
+Profile, session and file-secret managers treat their configured directory as
+the trusted storage root, including an intentional symlink at that root. Managed
+descendant directories and files must not be symlinks. Rooted IO uses `os.Root`
+and owner-only permissions; read/remove paths preserve owner read-only intent.
+The absolute-path store helpers trust their immediate parent. Call the `*At`
+functions with an explicit application root to constrain descendant traversal.
+Audit appends reject symlinks/nonregular files and repair overly broad file modes.

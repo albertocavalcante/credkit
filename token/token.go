@@ -12,7 +12,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"os"
 	"sync"
 	"time"
 
@@ -193,7 +192,7 @@ func (l *Ledger) FindByID(provider, id string) (*Metadata, error) {
 }
 
 func (l *Ledger) loadLocked() ([]Metadata, error) {
-	data, err := os.ReadFile(l.path)
+	data, err := store.ReadSecure(l.path)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil, nil

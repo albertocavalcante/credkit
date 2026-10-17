@@ -58,7 +58,7 @@ func (m *Manager) Load(provider string) (*Session, error) {
 	if err := validateProvider(provider); err != nil {
 		return nil, err
 	}
-	data, err := os.ReadFile(m.path(provider))
+	data, err := store.ReadSecureAt(m.dir, filepath.Base(m.path(provider)))
 	if err != nil {
 		return nil, fmt.Errorf("load session: %w", err)
 	}
@@ -87,7 +87,7 @@ func (m *Manager) Save(provider, key string) error {
 		return fmt.Errorf("marshal session: %w", err)
 	}
 
-	return store.WriteSecure(m.path(provider), data)
+	return store.WriteSecureAt(m.dir, filepath.Base(m.path(provider)), data)
 }
 
 // Clear removes the cached session for the given provider.
@@ -95,7 +95,7 @@ func (m *Manager) Clear(provider string) error {
 	if err := validateProvider(provider); err != nil {
 		return err
 	}
-	if err := os.Remove(m.path(provider)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+	if err := store.RemoveSecureAt(m.dir, filepath.Base(m.path(provider))); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("clear session: %w", err)
 	}
 	return nil
