@@ -19,3 +19,9 @@ func securePermissions(f *os.File, info os.FileInfo, permitted os.FileMode, writ
 	}
 	return f.Chmod(mode)
 }
+
+// Preserve explicit POSIX repair even when the owner cannot open a directory
+// until its permission bits are restored.
+func secureDirectoryPath(path string, _ os.FileInfo) error {
+	return os.Chmod(path, DirPerm)
+}

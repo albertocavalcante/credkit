@@ -45,19 +45,7 @@ func EnsureDir(path string) error {
 	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
 		return fmt.Errorf("secure directory %s: %w", path, ErrUnsafePath)
 	}
-	f, err := os.Open(path) //nolint:gosec // caller-selected storage directory
-	if err != nil {
-		return fmt.Errorf("open directory %s: %w", path, err)
-	}
-	defer func() { _ = f.Close() }()
-	opened, err := f.Stat()
-	if err != nil {
-		return fmt.Errorf("inspect directory handle: %w", err)
-	}
-	if !opened.IsDir() || !os.SameFile(info, opened) {
-		return ErrUnsafePath
-	}
-	if err := securePermissions(f, opened, DirPerm, true); err != nil {
+	if err := secureDirectoryPath(path, info); err != nil {
 		return fmt.Errorf("secure directory %s: %w", path, err)
 	}
 	return nil

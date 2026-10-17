@@ -173,3 +173,18 @@ func TestRemovalDoesNotRepairParentPermissions(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestEnsureDirCanRepairOwnerInaccessibleMode(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Chmod(root, 0000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(root, 0700) })
+	if err := store.EnsureDir(root); err != nil {
+		t.Fatalf("explicit directory repair failed: %v", err)
+	}
+	info, err := os.Stat(root)
+	if err != nil || info.Mode().Perm() != store.DirPerm {
+		t.Fatalf("directory remains inaccessible: %v %v", info, err)
+	}
+}

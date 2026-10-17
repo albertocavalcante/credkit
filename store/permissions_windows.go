@@ -90,3 +90,19 @@ func validateWindowsDescriptor(sd *windows.SECURITY_DESCRIPTOR, currentUser *win
 func trustedWindowsPrincipal(sid, currentUser *windows.SID) bool {
 	return sid.Equals(currentUser) || sid.IsWellKnown(windows.WinLocalSystemSid) || sid.IsWellKnown(windows.WinBuiltinAdministratorsSid)
 }
+
+func secureDirectoryPath(path string, expected os.FileInfo) error {
+	f, err := os.Open(path) //nolint:gosec // caller-selected storage directory
+	if err != nil {
+		return err
+	}
+	defer func() { _ = f.Close() }()
+	opened, err := f.Stat()
+	if err != nil {
+		return err
+	}
+	if !opened.IsDir() || !os.SameFile(expected, opened) {
+		return ErrUnsafePath
+	}
+	return securePermissions(f, opened, DirPerm, true)
+}
