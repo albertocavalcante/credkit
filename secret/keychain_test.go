@@ -272,7 +272,7 @@ func TestKeychainLegacyMigrationRealSecurity(t *testing.T) {
 			if err != nil || string(got) != tc.want {
 				t.Fatalf("legacy decode=%q %v", got, err)
 			}
-			if err := backend.Put(t.Context(), key, got); err != nil {
+			if err := migrateLegacyKeychain(t.Context(), key, tc.policy); err != nil {
 				t.Fatal(err)
 			}
 			got, err = backend.Get(t.Context(), key)

@@ -151,7 +151,7 @@ total, valid, invalid, expired, expiringSoon := report.Counts()
 - **XDG-compliant**: Respects `$XDG_CONFIG_HOME`, falls back to `~/.config/<app>`
 - **Secure by default**: Files at 0600, directories at 0700
 - **Standalone-friendly**: Each CLI tool imports only what it needs, no orchestrator dependency
-- **Thread-safe**: Ledger and audit logger are safe for concurrent use
+- **Thread-safe**: Ledger transactions are serialized across instances in this process; each audit logger supports concurrent use
 
 ## License
 
@@ -201,3 +201,40 @@ by default, because its bytes could be either literal or encoded. For migration,
 set `KeychainStore.LegacyEncoding` to `secret.LegacyPlain` or `secret.LegacyBase64`
 according to the known old format, read the value, then save it with `Put`. New
 marked entries decode consistently regardless of that migration policy.
+
+
+### Migration examples and storage guarantees
+
+The executable examples cover [rotation recovery](sts/example_test.go),
+[unknown health](sts/example_test.go), [exact ID versus name lookup](token/example_test.go),
+and [rooted credential IO](store/example_test.go). Run them with
+`go test ./sts ./token ./store -run Example`. The [Keychain migration example](secret/example_test.go)
+shares its implementation with `TestKeychainLegacyMigrationRealSecurity`, which
+executes both known legacy formats using temporary native Keychain items on macOS.
+The standalone example is compiled but does not run against a user's credentials.
+
+Ledger read-modify-write transactions share one process-wide mutex, including
+independent `Ledger` instances and filesystem aliases. This intentionally also
+serializes unrelated ledger files; these metadata operations favor correctness
+and simple lock ownership over parallel file IO. Multiple processes must coordinate
+externally around the complete transaction. Atomic file replacement alone does not
+prevent lost updates from independent processes.
+
+Secure writes sync and close a temporary file before replacing the destination.
+Readers on a filesystem with atomic rename observe a complete old or new value.
+A failed replacement preserves the previous file and removes its temporary file.
+An abrupt process termination can leave an owner-only temporary file; no automatic
+recovery or power-loss durability guarantee is provided. In particular, the parent
+directory is not synced. Concurrent secure reads can return `store.ErrUnsafePath`
+when the destination changes between identity checks; retry the read when replacing
+credentials concurrently. Filesystem operations and permission guarantees remain
+subject to the host filesystem and operating system.
+
+The pure fuzz targets can be run separately without making network requests or
+invoking the Keychain CLI per input:
+
+```sh
+go test ./oauth -run '^$' -fuzz '^FuzzTokenUnmarshal$' -fuzztime 30s -parallel 2
+go test ./oauth -run '^$' -fuzz '^FuzzAuthCodeURLReservedParameters$' -fuzztime 30s -parallel 2
+go test ./secret -run '^$' -fuzz '^FuzzKeychainEncodingMetadata$' -fuzztime 30s -parallel 2
+```
